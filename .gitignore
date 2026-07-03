@@ -31,3 +31,4 @@ dump.rdb
 nimbledeps/
 nimble.paths
 nimble.develop
+.venv-sessions
