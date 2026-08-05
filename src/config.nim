@@ -45,14 +45,14 @@ proc getConfig*(path: string): (Config, parseCfg.Config) =
     listCacheTime: cfg.get("Cache", "listMinutes", 120),
     rssCacheTime: cfg.get("Cache", "rssMinutes", 10),
 
-    redisHost: cfg.get("Cache", "redisHost", "localhost"),
-    redisPort: cfg.get("Cache", "redisPort", 6379),
+    redisHost: cfg.getEnvOrConfig("NITTER_REDIS_HOST", "Cache", "redisHost", "localhost"),
+    redisPort: cfg.getEnvOrConfig("NITTER_REDIS_PORT", "Cache", "redisPort", 6379),
     redisConns: cfg.get("Cache", "redisConnections", 20),
     redisMaxConns: cfg.get("Cache", "redisMaxConnections", 30),
-    redisPassword: cfg.get("Cache", "redisPassword", ""),
+    redisPassword: cfg.getEnvOrConfig("NITTER_REDIS_PASSWORD", "Cache", "redisPassword", ""),
 
     # Config
-    hmacKey: cfg.get("Config", "hmacKey", "secretkey"),
+    hmacKey: cfg.getEnvOrConfig("NITTER_HMAC_KEY", "Config", "hmacKey", "secretkey"),
     base64Media: cfg.get("Config", "base64Media", false),
     minTokens: cfg.get("Config", "tokenCount", 10),
     enableRSSUserTweets: masterRss and cfg.get("Config", "enableRSSUserTweets", true),

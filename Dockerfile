@@ -19,7 +19,10 @@ RUN apk --no-cache add pcre ca-certificates openssl
 COPY --from=nim /src/nitter/nitter ./
 COPY --from=nim /src/nitter/nitter.example.conf ./nitter.conf
 COPY --from=nim /src/nitter/public ./public
+COPY entrypoint.sh ./
+RUN chmod +x entrypoint.sh
+ENV NITTER_SESSIONS_FILE=/tmp/sessions.jsonl
 EXPOSE 8080
 RUN adduser -h /src/ -D -s /bin/sh nitter
 USER nitter
-CMD ./nitter
+CMD ["./entrypoint.sh"]
