@@ -79,8 +79,14 @@ settings:
   reusePort = true
   maxBody = 64 * 1024
 
+let bearerToken = getEnv("NITTER_BEARER_TOKEN")
+
 routes:
   before:
+    if bearerToken.len > 0 and
+        request.headers.getOrDefault("Authorization") != &"Bearer {bearerToken}":
+      halt Http401
+
     # Reject malformed paths
     if request.path.len == 0 or request.path[0] != '/':
       halt Http400
