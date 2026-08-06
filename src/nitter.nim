@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-import asyncdispatch, strformat, logging
+import asyncdispatch, strformat, logging, strutils
 from net import Port
 from htmlgen import a
 from os import getEnv, normalizedPath
@@ -83,7 +83,11 @@ let bearerToken = getEnv("NITTER_BEARER_TOKEN")
 
 routes:
   before:
-    if bearerToken.len > 0 and
+    # Media-proxy routes are exempt: they need to be fetchable by third
+    # parties (e.g. an LLM provider downloading an image URL) that can't be
+    # handed our bearer token.
+    let isMediaRoute = request.path.startsWith("/pic") or request.path.startsWith("/video")
+    if bearerToken.len > 0 and not isMediaRoute and
         request.headers.getOrDefault("Authorization") != &"Bearer {bearerToken}":
       halt Http401
 
