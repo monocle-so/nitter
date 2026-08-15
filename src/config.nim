@@ -72,7 +72,9 @@ proc getConfig*(path: string): (Config, parseCfg.Config) =
     errorCooldownMs: cfg.getEnvOrConfig("NITTER_ERROR_COOLDOWN_MS", "Config", "errorCooldownMs", 60000),
     rateLimitRemainingBuffer: cfg.getEnvOrConfig("NITTER_RATE_LIMIT_REMAINING_BUFFER", "Config", "rateLimitRemainingBuffer", 10),
     maxRetries: cfg.get("Config", "maxRetries", 1),
-    retryDelayMs: cfg.get("Config", "retryDelayMs", 150)
+    retryDelayMs: cfg.get("Config", "retryDelayMs", 150),
+    maxQueuedPerSession: cfg.getEnvOrConfig(
+      "NITTER_MAX_QUEUED_PER_SESSION", "Config", "maxQueuedPerSession", 10)
   )
 
   return (conf, cfg)

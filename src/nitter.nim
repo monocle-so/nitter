@@ -49,6 +49,7 @@ setSessionSafety(
   cfg.minRequestIntervalMs, cfg.errorCooldownMs, cfg.rateLimitRemainingBuffer)
 setMaxRetries(cfg.maxRetries)
 setRetryDelayMs(cfg.retryDelayMs)
+setMaxQueuedPerSession(cfg.maxQueuedPerSession)
 initAboutPage(cfg.staticDir)
 
 waitFor initRedisPool(cfg)
@@ -138,6 +139,11 @@ routes:
     const link = a("another instance", href = instancesUrl)
     resp Http429, showError(
       &"Instance has no auth tokens, or is fully rate limited.<br>Use {link} or try again later.", cfg)
+
+  error QueueFullError:
+    const link = a("another instance", href = instancesUrl)
+    resp Http429, showError(
+      &"Instance is overloaded and its request queue is full.<br>Use {link} or try again shortly.", cfg)
 
   extend articleRoute, ""
   extend rss, ""

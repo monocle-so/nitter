@@ -7,6 +7,7 @@ genPrefsType()
 type
   RateLimitError* = object of CatchableError
   NoSessionsError* = object of CatchableError
+  QueueFullError* = object of CatchableError
   InternalError* = object of CatchableError
   BadClientError* = object of CatchableError
 
@@ -436,6 +437,7 @@ type
     rateLimitRemainingBuffer*: int
     maxRetries*: int
     retryDelayMs*: int
+    maxQueuedPerSession*: int
 
     rssCacheTime*: int
     listCacheTime*: int

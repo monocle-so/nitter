@@ -1,9 +1,17 @@
 #SPDX-License-Identifier: AGPL-3.0-only
-import std/[asyncdispatch, times, json, random, strutils, tables, packedsets, os]
+import std/[asyncdispatch, times, json, random, strutils, tables, packedsets, deques, os]
 import types, consts
 import experimental/parser/session
 
 const hourInSeconds = 60 * 60
+# how often the queue dispatcher re-checks for a freed-up session while
+# waiting on time-based cooldowns/rate-limit resets (no event fires then)
+const dispatchPollMs = 100
+
+type
+  QueuedRequest = object
+    req: ApiReq
+    fut: Future[Session]
 
 var
   sessionPool: seq[Session]
@@ -13,6 +21,10 @@ var
   minRequestIntervalMs = 3000
   errorCooldownMs = 60 * 1000
   rateLimitRemainingBuffer = 10
+  maxQueuedPerSession = 10
+
+  requestQueue: Deque[QueuedRequest]
+  dispatcherActive = false
 
 proc setMaxConcurrentReqs*(reqs: int) =
   if reqs > 0:
@@ -25,6 +37,10 @@ proc setSessionSafety*(minIntervalMs, cooldownMs, remainingBuffer: int) =
     errorCooldownMs = cooldownMs
   if remainingBuffer >= 0:
     rateLimitRemainingBuffer = remainingBuffer
+
+proc setMaxQueuedPerSession*(n: int) =
+  if n >= 0:
+    maxQueuedPerSession = n
 
 proc nowMs(): int64 =
   int64(epochTime() * 1000)
@@ -163,6 +179,9 @@ proc rateLimitError*(): ref RateLimitError =
 proc noSessionsError*(): ref NoSessionsError =
   newException(NoSessionsError, "no sessions available")
 
+proc queueFullError*(): ref QueueFullError =
+  newException(QueueFullError, "request queue is full")
+
 proc isLimited(session: Session; req: ApiReq): bool =
   if session.isNil:
     return true
@@ -218,25 +237,67 @@ proc release*(session: Session) =
   if session.pending > 0:
     dec session.pending
 
+proc findReadySession(req: ApiReq): Session =
+  if sessionPool.len == 0:
+    return nil
+  let start = rand(sessionPool.high)
+  for i in 0 ..< sessionPool.len:
+    let session = sessionPool[(start + i) mod sessionPool.len]
+    if session.isReady(req):
+      return session
+
+proc queueCapacity(): int =
+  # cap is per-account, so total queue depth scales with pool size
+  max(1, sessionPool.len) * maxQueuedPerSession
+
+proc dispatchLoop() {.async.} =
+  if dispatcherActive:
+    return
+  dispatcherActive = true
+  try:
+    while requestQueue.len > 0:
+      var remaining: Deque[QueuedRequest]
+      while requestQueue.len > 0:
+        let item = requestQueue.popFirst()
+        if item.fut.finished:
+          # waiter already gave up (e.g. connection closed); drop it
+          continue
+        let session = findReadySession(item.req)
+        if session.isNil:
+          remaining.addLast(item)
+        else:
+          session.reserve()
+          item.fut.complete(session)
+      requestQueue = remaining
+      if requestQueue.len > 0:
+        await sleepAsync(dispatchPollMs)
+  finally:
+    dispatcherActive = false
+
 proc getSession*(req: ApiReq): Future[Session] {.async.} =
   if sessionPool.len == 0:
     log "no sessions available for API: ", req.cookie.endpoint
     raise noSessionsError()
 
-  let start = rand(sessionPool.high)
-  for i in 0 ..< sessionPool.len:
-    result = sessionPool[(start + i) mod sessionPool.len]
-    if result.isReady(req):
-      break
+  let ready = findReadySession(req)
+  if not ready.isNil:
+    ready.reserve()
+    return ready
 
-  if not result.isNil and result.isReady(req):
-    result.reserve()
-  else:
-    if result.isNil:
-      log "no sessions available for API: ", req.cookie.endpoint
-    else:
-      log "no sessions available for API: ", req.endpoint(result), ", last tried: ", result.pretty
-    raise noSessionsError()
+  # no session is immediately available; queue this request rather than
+  # dropping it, unless the per-account queue budget is already exhausted
+  if requestQueue.len >= queueCapacity():
+    log "queue full (", requestQueue.len, "/", queueCapacity(),
+        "), rejecting request for API: ", req.cookie.endpoint
+    raise queueFullError()
+
+  let fut = newFuture[Session]("auth.getSession.queued")
+  requestQueue.addLast(QueuedRequest(req: req, fut: fut))
+  log "queuing request for API: ", req.cookie.endpoint,
+      " (queue depth: ", requestQueue.len, "/", queueCapacity(), ")"
+
+  asyncCheck dispatchLoop()
+  result = await fut
 
 proc setLimited*(session: Session; req: ApiReq) =
   let api = req.endpoint(session)
