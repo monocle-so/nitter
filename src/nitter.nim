@@ -88,7 +88,11 @@ routes:
     # parties (e.g. an LLM provider downloading an image URL) that can't be
     # handed our bearer token.
     let isMediaRoute = request.path.startsWith("/pic") or request.path.startsWith("/video")
-    if bearerToken.len > 0 and not isMediaRoute and
+    # Debug/health routes are exempt so uptime checks and operators can read
+    # them without the bearer token. /.sessions is still gated separately
+    # behind cfg.enableDebug.
+    let isDebugRoute = request.path == "/.health" or request.path == "/.sessions"
+    if bearerToken.len > 0 and not isMediaRoute and not isDebugRoute and
         request.headers.getOrDefault("Authorization") != &"Bearer {bearerToken}":
       halt Http401
 

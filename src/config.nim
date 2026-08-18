@@ -60,7 +60,7 @@ proc getConfig*(path: string): (Config, parseCfg.Config) =
     enableRSSUserMedia: masterRss and cfg.get("Config", "enableRSSUserMedia", true),
     enableRSSSearch: masterRss and cfg.get("Config", "enableRSSSearch", true),
     enableRSSList: masterRss and cfg.get("Config", "enableRSSList", true),
-    enableDebug: cfg.get("Config", "enableDebug", false),
+    enableDebug: cfg.getEnvOrConfig("NITTER_ENABLE_DEBUG", "Config", "enableDebug", false),
     proxy: cfg.getEnvOrConfig("NITTER_PROXY", "Config", "proxy", ""),
     proxyAuth: cfg.getEnvOrConfig("NITTER_PROXY_AUTH", "Config", "proxyAuth", ""),
     proxySessionPerAccount: cfg.getEnvOrConfig(
