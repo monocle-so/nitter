@@ -1,11 +1,20 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-import httpclient, strutils
+import httpclient, strutils, times
 import types
+
+const
+  # Upstreams close idle keep-alive connections, and a pooled client whose
+  # socket is already closed fails with "Connection was closed before full
+  # request has been made" on reuse. This must stay strictly below the shortest
+  # upstream idle timeout, or the two race and the pool hands out a connection
+  # the far end is closing right then. The bundled api proxy reaps at 30s.
+  maxIdleSeconds = 20.0
 
 type
   PooledConn = object
     proxyKey: string
     client: AsyncHttpClient
+    releasedAt: float # epochTime() when it was returned to the pool
 
   HttpPool* = ref object
     conns*: seq[PooledConn]
@@ -88,16 +97,31 @@ proc release*(pool: HttpPool; client: AsyncHttpClient; proxyKey: string; badClie
     try: client.close()
     except: discard
   elif client != nil:
-    pool.conns.insert(PooledConn(client: client, proxyKey: proxyKey))
+    pool.conns.insert(PooledConn(
+      client: client, proxyKey: proxyKey, releasedAt: epochTime()))
 
 proc acquire*(pool: HttpPool; heads: HttpHeaders; proxyKey: string): AsyncHttpClient =
-  for i in 0 ..< pool.conns.len:
-    if pool.conns[i].proxyKey == proxyKey:
-      let conn = pool.conns[i]
-      pool.conns.delete(i)
-      result = conn.client
-      result.headers = heads
-      return
+  let now = epochTime()
+  var i = 0
+  while i < pool.conns.len:
+    if pool.conns[i].proxyKey != proxyKey:
+      inc i
+      continue
+
+    let conn = pool.conns[i]
+    pool.conns.delete(i)
+
+    # Drop anything that has sat long enough for the far end to have closed it,
+    # and keep scanning - a stale entry usually means its neighbours are stale
+    # too, which is why retrying on the next pooled client used to fail as well.
+    if now - conn.releasedAt > maxIdleSeconds:
+      try: conn.client.close()
+      except: discard
+      continue
+
+    result = conn.client
+    result.headers = heads
+    return
 
   result = newClient(heads, proxyKey)
 

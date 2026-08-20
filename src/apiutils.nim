@@ -214,6 +214,14 @@ template fetchImpl(result, fetchBody) {.dirty.} =
   except OSError as e:
     session.setCooldown()
     raise e
+  except ProtocolError as e:
+    # The upstream closed the connection (typically a pooled client whose
+    # socket the far end had already dropped). That is a transport failure, not
+    # the account's fault, so it must not be labelled a rate limit or cost the
+    # session a cooldown - doing so both hid the real cause in the logs and
+    # shrank the usable pool for an error the account had no part in.
+    echo "transport error: ", e.msg, ", API: ", url.path, ", session: ", session.pretty
+    raise newException(BadClientError, "Connection closed by upstream")
   except Exception as e:
     let s = session.pretty
     echo "error: ", e.name, ", msg: ", e.msg, ", session: ", s, ", url: ", url

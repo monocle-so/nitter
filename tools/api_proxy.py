@@ -124,6 +124,14 @@ def target_url(path):
 
 class ProxyHandler(BaseHTTPRequestHandler):
     server_version = "NitterApiProxy/1.0"
+    # HTTP/1.0 (the BaseHTTPRequestHandler default) closes the connection after
+    # every response. Nitter pools and reuses its clients, so it would keep
+    # writing onto sockets this server had already closed and fail with
+    # "Connection was closed before full request has been made". Every response
+    # path below sends content-length, which is what 1.1 keep-alive requires.
+    protocol_version = "HTTP/1.1"
+    # Keep-alive holds a thread per idle connection, so reap quiet ones.
+    timeout = 30  # seconds
 
     def log_message(self, fmt, *args):
         return
