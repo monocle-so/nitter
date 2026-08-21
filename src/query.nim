@@ -11,7 +11,12 @@ const
     "replies", "retweets", "nativeretweets"
   ]
 
-  emptyQuery* = "include:nativeretweets"
+  # This fork exists for social listening, where a repost is noise: it carries
+  # no words of its own and is attributed to whoever reposted rather than to
+  # the author who wrote it. X already leaves native retweets out of search
+  # results unless a query opts back in with "include:nativeretweets", so
+  # simply never opting in keeps them out everywhere.
+  emptyQuery* = ""
 
 template `@`(param: string): untyped =
   if param in pms: pms[param]
@@ -67,12 +72,10 @@ proc genQueryParam*(query: Query; maxId=""): string =
   if query.fromUser.len > 0 and query.kind in {posts, media}:
     param &= " (filter:self_threads OR -filter:replies)"
 
-  if "nativeretweets" notin query.excludes:
-    param &= " include:nativeretweets"
-
   for f in query.filters:
     filters.add "filter:" & f
   for e in query.excludes:
+    # Reposts are already excluded, so asking for it again would be a no-op.
     if e == "nativeretweets": continue
     filters.add "-filter:" & e
   for i in query.includes:
