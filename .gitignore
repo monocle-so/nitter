@@ -19,6 +19,7 @@ nitter.conf
 guest_accounts.json*
 accounts.json*
 accounts*.json*
+new_account.json*
 twitter_accounts.json*
 x_accounts.json*
 sessions.json*

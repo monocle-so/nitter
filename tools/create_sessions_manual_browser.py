@@ -63,12 +63,29 @@ async def wait_for_session(browser, username, timeout):
     raise TimeoutError("Timed out waiting for X login cookies")
 
 
+async def start_browser(retries=5, delay=3):
+    last_error = None
+    for attempt in range(1, retries + 1):
+        try:
+            return await uc.start(headless=False, no_sandbox=True)
+        except Exception as error:
+            last_error = error
+            if attempt < retries:
+                print(
+                    f"[!] Browser failed to start (attempt {attempt}/{retries}), "
+                    f"retrying in {delay}s...",
+                    file=sys.stderr,
+                )
+                await asyncio.sleep(delay)
+    raise last_error
+
+
 async def capture_one(index, total, username, timeout):
     print(
         f"[*] Account {index}/{total}: complete login in the opened browser window.",
         file=sys.stderr,
     )
-    browser = await uc.start(headless=False)
+    browser = await start_browser()
     try:
         await browser.get("https://x.com/i/flow/login")
         return await wait_for_session(browser, username, timeout)

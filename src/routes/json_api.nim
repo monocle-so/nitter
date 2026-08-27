@@ -263,6 +263,7 @@ proc healthJson*(): JsonNode =
   result = newJObject()
   result["ok"] = %true
   result["sessions"] = getSessionPoolHealth()
+  result["queue"] = getQueueHealth()
 
 proc getTimelineKind*(kind: string): TimelineKind =
   case kind

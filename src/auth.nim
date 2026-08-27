@@ -250,6 +250,17 @@ proc queueCapacity(): int =
   # cap is per-account, so total queue depth scales with pool size
   max(1, sessionPool.len) * maxQueuedPerSession
 
+proc getQueueHealth*(): JsonNode =
+  # Requests waiting for a session across every endpoint. This is the pool
+  # exhausting itself before any error shows up: a session limited or cooling
+  # down does not fail a request, it queues it, so a pool that looks "fine" by
+  # every other field here can still be adding latency nobody sees until the
+  # queue is this full.
+  %*{
+    "depth": requestQueue.len,
+    "capacity": queueCapacity()
+  }
+
 proc dispatchLoop() {.async.} =
   if dispatcherActive:
     return
