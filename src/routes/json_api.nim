@@ -6,6 +6,8 @@ import jester
 import router_utils
 import ".."/[api, auth, query, redis_cache, types]
 
+export api, query, redis_cache, types
+
 proc dateJson*(dt: DateTime): JsonNode =
   try:
     let ts = dt.toTime().toUnix()
