@@ -86,24 +86,30 @@ routes:
     applyUrlPrefs()
 
   error Http404:
-    resp Http404, {"Content-Type": "text/plain; charset=utf-8"}, "Not found"
+    resp Http404, {"Content-Type": "application/json; charset=utf-8"},
+         $jsonError("Not found")
 
   error InternalError:
     echo error.exc.name, ": ", error.exc.msg
-    resp Http500, {"Content-Type": "text/plain; charset=utf-8"}, "Internal error"
+    resp Http500, {"Content-Type": "application/json; charset=utf-8"},
+         $jsonError("Internal error")
 
   error BadClientError:
     echo error.exc.name, ": ", error.exc.msg
-    resp Http500, {"Content-Type": "text/plain; charset=utf-8"}, "Network error"
+    resp Http500, {"Content-Type": "application/json; charset=utf-8"},
+         $jsonError("Network error")
 
   error RateLimitError:
-    resp Http429, {"Content-Type": "text/plain; charset=utf-8"}, "Rate limited"
+    resp Http429, {"Content-Type": "application/json; charset=utf-8"},
+         $jsonError("Rate limited")
 
   error NoSessionsError:
-    resp Http429, {"Content-Type": "text/plain; charset=utf-8"}, "No sessions available"
+    resp Http429, {"Content-Type": "application/json; charset=utf-8"},
+         $jsonError("No sessions available")
 
   error QueueFullError:
-    resp Http429, {"Content-Type": "text/plain; charset=utf-8"}, "Request queue full"
+    resp Http429, {"Content-Type": "application/json; charset=utf-8"},
+         $jsonError("Request queue full")
 
   extend media, ""
   extend broadcastRoute, ""
