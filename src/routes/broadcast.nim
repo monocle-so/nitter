@@ -4,28 +4,10 @@ import jester
 
 import router_utils
 import ".."/[types, formatters, redis_cache]
-import ../views/[general, broadcast]
 import media
-
-export broadcast
 
 proc createBroadcastRouter*(cfg: Config) =
   router broadcastRoute:
-    get "/i/broadcasts/@id":
-      cond @"id".allCharsInSet({'a'..'z', 'A'..'Z', '0'..'9'})
-      var bc: Broadcast
-      try:
-        bc = await getCachedBroadcast(@"id")
-      except:
-        discard
-
-      if bc.id.len == 0:
-        resp Http404, showError("Broadcast not found", cfg)
-
-      let prefs = requestPrefs()
-      resp renderMain(renderBroadcast(bc, prefs, request.path), request, cfg, prefs,
-                      bc.title, ogTitle=bc.title)
-
     get "/i/broadcasts/@id/stream":
       cond @"id".allCharsInSet({'a'..'z', 'A'..'Z', '0'..'9'})
       var bc: Broadcast

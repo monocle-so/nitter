@@ -1,20 +1,13 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 import asyncdispatch, strformat, logging, strutils
 from net import Port
-from htmlgen import a
 from os import getEnv, normalizedPath
 
 import jester
 
 import types, config, prefs, formatters, redis_cache, http_pool, auth, apiutils
-import views/[general, about]
 import routes/[
-  preferences, timeline, status, media, search, rss, list, community, debug,
-  unsupported, embed, resolver, broadcast, space, article, json_api,
-  router_utils]
-
-const instancesUrl = "https://github.com/zedeus/nitter/wiki/Instances"
-const issuesUrl = "https://github.com/zedeus/nitter/issues"
+  media, debug, broadcast, space, json_api, router_utils]
 
 let
   configPath = getEnv("NITTER_CONF_FILE", "./nitter.conf")
@@ -50,24 +43,12 @@ setSessionSafety(
 setMaxRetries(cfg.maxRetries)
 setRetryDelayMs(cfg.retryDelayMs)
 setMaxQueuedPerSession(cfg.maxQueuedPerSession)
-initAboutPage(cfg.staticDir)
 
 waitFor initRedisPool(cfg)
 stdout.write &"Connected to Redis at {cfg.redisHost}:{cfg.redisPort}\n"
 stdout.flushFile
 
-createArticleRouter(cfg)
-createUnsupportedRouter(cfg)
-createResolverRouter(cfg)
-createPrefRouter(cfg)
-createTimelineRouter(cfg)
-createListRouter(cfg)
-createCommunityRouter(cfg)
-createStatusRouter(cfg)
-createSearchRouter(cfg)
 createMediaRouter(cfg)
-createEmbedRouter(cfg)
-createRssRouter(cfg)
 createBroadcastRouter(cfg)
 createSpaceRouter(cfg)
 createDebugRouter(cfg)
@@ -104,64 +85,28 @@ routes:
     cond "." notin request.path
     applyUrlPrefs()
 
-  get "/":
-    resp renderMain(renderSearch(), request, cfg, requestPrefs())
-
-  get "/about":
-    resp renderMain(renderAbout(), request, cfg, requestPrefs())
-
-  get "/explore":
-    redirect("/about")
-
-  get "/help":
-    redirect("/about")
-
-  get "/i/redirect":
-    let url = decodeUrl(@"url")
-    if url.len == 0: resp Http404
-    redirect(replaceUrls(url, requestPrefs()))
-
   error Http404:
-    resp Http404, showError("Page not found", cfg)
+    resp Http404, {"Content-Type": "text/plain; charset=utf-8"}, "Not found"
 
   error InternalError:
     echo error.exc.name, ": ", error.exc.msg
-    const link = a("open a GitHub issue", href = issuesUrl)
-    resp Http500, showError(
-      &"An error occurred, please {link} with the URL you tried to visit.", cfg)
+    resp Http500, {"Content-Type": "text/plain; charset=utf-8"}, "Internal error"
 
   error BadClientError:
     echo error.exc.name, ": ", error.exc.msg
-    resp Http500, showError("Network error occurred, please try again.", cfg)
+    resp Http500, {"Content-Type": "text/plain; charset=utf-8"}, "Network error"
 
   error RateLimitError:
-    const link = a("another instance", href = instancesUrl)
-    resp Http429, showError(
-      &"Instance has been rate limited.<br>Use {link} or try again later.", cfg)
+    resp Http429, {"Content-Type": "text/plain; charset=utf-8"}, "Rate limited"
 
   error NoSessionsError:
-    const link = a("another instance", href = instancesUrl)
-    resp Http429, showError(
-      &"Instance has no auth tokens, or is fully rate limited.<br>Use {link} or try again later.", cfg)
+    resp Http429, {"Content-Type": "text/plain; charset=utf-8"}, "No sessions available"
 
   error QueueFullError:
-    const link = a("another instance", href = instancesUrl)
-    resp Http429, showError(
-      &"Instance is overloaded and its request queue is full.<br>Use {link} or try again shortly.", cfg)
+    resp Http429, {"Content-Type": "text/plain; charset=utf-8"}, "Request queue full"
 
-  extend articleRoute, ""
-  extend rss, ""
-  extend status, ""
-  extend search, ""
-  extend timeline, ""
   extend media, ""
-  extend list, ""
-  extend community, ""
-  extend preferences, ""
-  extend resolver, ""
-  extend embed, ""
   extend broadcastRoute, ""
   extend spaceRoute, ""
   extend debug, ""
   extend jsonApi, ""
-  extend unsupported, ""

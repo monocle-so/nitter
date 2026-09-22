@@ -29,8 +29,6 @@ proc getEnvOrConfig(config: parseCfg.Config; envName, section, key: string; defa
 proc getConfig*(path: string): (Config, parseCfg.Config) =
   var cfg = loadConfig(path)
 
-  let masterRss = cfg.get("Config", "enableRSS", true)
-
   let conf = Config(
     # Server
     address: cfg.get("Server", "address", "0.0.0.0"),
@@ -55,11 +53,6 @@ proc getConfig*(path: string): (Config, parseCfg.Config) =
     hmacKey: cfg.getEnvOrConfig("NITTER_HMAC_KEY", "Config", "hmacKey", "secretkey"),
     base64Media: cfg.get("Config", "base64Media", false),
     minTokens: cfg.get("Config", "tokenCount", 10),
-    enableRSSUserTweets: masterRss and cfg.get("Config", "enableRSSUserTweets", true),
-    enableRSSUserReplies: masterRss and cfg.get("Config", "enableRSSUserReplies", true),
-    enableRSSUserMedia: masterRss and cfg.get("Config", "enableRSSUserMedia", true),
-    enableRSSSearch: masterRss and cfg.get("Config", "enableRSSSearch", true),
-    enableRSSList: masterRss and cfg.get("Config", "enableRSSList", true),
     enableDebug: cfg.getEnvOrConfig("NITTER_ENABLE_DEBUG", "Config", "enableDebug", false),
     proxy: cfg.getEnvOrConfig("NITTER_PROXY", "Config", "proxy", ""),
     proxyAuth: cfg.getEnvOrConfig("NITTER_PROXY_AUTH", "Config", "proxyAuth", ""),

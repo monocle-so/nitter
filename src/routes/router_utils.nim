@@ -2,7 +2,6 @@
 import strutils, sequtils, uri, tables, json
 from jester import Request, cookies
 
-import ../views/general
 import ".."/[utils, prefs, types]
 export utils, prefs, types, uri
 
@@ -14,9 +13,6 @@ template savePref*(pref, value: string; req: Request; expire=false) =
 
 template requestPrefs*(): untyped {.dirty.} =
   getPrefs(cookies(request), params(request))
-
-template showError*(error: string; cfg: Config): string =
-  renderMain(renderError(error), request, cfg, requestPrefs(), "Error")
 
 template getPath*(): untyped {.dirty.} =
   $(parseUri(request.path) ? filterParams(request.params))

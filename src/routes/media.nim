@@ -160,7 +160,7 @@ proc createMediaRouter*(cfg: Config) =
       cond isTwitterUrl(url)
 
       if getHmac(url) != request.matches[1]:
-        resp Http403, showError("Failed to verify signature", cfg)
+        resp Http403, {"Content-Type": "text/plain; charset=utf-8"}, "Failed to verify signature"
 
       if ".mp4" in url or ".ts" in url or ".m4s" in url or ".aac" in url:
         let code = await proxyMedia(request, url)

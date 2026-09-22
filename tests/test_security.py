@@ -37,9 +37,9 @@ class TestMalformedPaths:
             f'Expected {expected_status} for {path}, got {status}'
 
     @parameterized.expand([
-        ('/jack', 200),
-        ('/about', 200),
-        ('/', 200),
+        ('/api/v1/', 200),
+        ('/api/v1/health', 200),
+        ('/.health', 200),
     ])
     def test_normal_paths_work(self, path, expected_status):
         """Normal paths should still work."""
@@ -56,5 +56,33 @@ class TestMalformedPaths:
             assert status == 400, f'Expected 400 for {path}, got {status}'
 
         # Verify server is still responding after malformed requests
-        status = curl_status(f'{BASE_URL}/')
+        status = curl_status(f'{BASE_URL}/api/v1/health')
         assert status == 200, 'Server should still be alive'
+
+
+class TestRemovedDocumentRoutes:
+    """HTML, redirect-to-HTML, preference, and RSS routes stay unavailable."""
+
+    @parameterized.expand([
+        ('/',),
+        ('/about',),
+        ('/explore',),
+        ('/help',),
+        ('/i/redirect?url=https%3A%2F%2Fx.com',),
+        ('/jack',),
+        ('/jack/about',),
+        ('/jack/followers',),
+        ('/jack/following',),
+        ('/jack/status/20',),
+        ('/jack/rss',),
+        ('/search?q=nitter',),
+        ('/search/rss?q=nitter',),
+        ('/settings',),
+        ('/i/article/20',),
+        ('/i/communities/20',),
+        ('/i/lists/20',),
+        ('/i/spaces/20',),
+        ('/i/broadcasts/20',),
+    ])
+    def test_document_route_returns_404(self, path):
+        assert curl_status(f'{BASE_URL}{path}') == 404
