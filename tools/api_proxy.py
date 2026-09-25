@@ -22,6 +22,8 @@ HOP_BY_HOP = {
 }
 
 STRIP_RESPONSE_HEADERS = HOP_BY_HOP | {"content-encoding"}
+MAX_REQUEST_BODY = 12 * 1024 * 1024
+ALLOWED_TARGET_PREFIXES = ("x.com/", "api.x.com/", "upload.x.com/")
 
 
 def clean_config_value(value):
@@ -117,7 +119,7 @@ def parse_response_headers(raw_headers):
 
 def target_url(path):
     value = path.lstrip("/")
-    if not value.startswith(("x.com/", "api.x.com/")):
+    if not value.startswith(ALLOWED_TARGET_PREFIXES):
         return ""
     return "https://" + value
 
@@ -136,35 +138,67 @@ class ProxyHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         return
 
-    def do_GET(self):
-        if self.path == "/_health":
-            self.send_response(200)
-            self.send_header("content-type", "text/plain")
-            self.send_header("content-length", "2")
-            self.end_headers()
-            self.wfile.write(b"ok")
-            return
+    def send_text_error(self, status, message):
+        body = message.encode("utf-8")
+        self.send_response(status)
+        self.send_header("content-type", "text/plain; charset=utf-8")
+        self.send_header("content-length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
+    def request_body(self):
+        if self.headers.get("transfer-encoding"):
+            self.send_text_error(400, "chunked request bodies are not supported")
+            return None
+
+        raw_length = self.headers.get("content-length", "0")
+        try:
+            length = int(raw_length)
+        except ValueError:
+            self.send_text_error(400, "invalid content-length")
+            return None
+
+        if length < 0 or length > MAX_REQUEST_BODY:
+            self.send_text_error(413, "request body exceeds 12 MiB")
+            return None
+
+        body = self.rfile.read(length)
+        if len(body) != length:
+            self.send_text_error(400, "incomplete request body")
+            return None
+        return body
+
+    def proxy_request(self, method, request_body=b""):
         url = target_url(self.path)
         if not url:
-            self.send_error(400, "unsupported target")
+            self.send_text_error(400, "unsupported target")
             return
 
         cookie_header = self.headers.get("cookie", "")
         proxy = sticky_proxy(os.environ.get("NITTER_PROXY", ""), cookie_header)
 
-        with tempfile.NamedTemporaryFile() as header_file, tempfile.NamedTemporaryFile() as body_file:
+        with (
+            tempfile.NamedTemporaryFile() as header_file,
+            tempfile.NamedTemporaryFile() as body_file,
+            tempfile.NamedTemporaryFile() as request_body_file,
+        ):
+            request_body_file.write(request_body)
+            request_body_file.flush()
             config = [
                 config_line("url", url),
+                config_line("request", method),
                 "http1.1",
                 "silent",
                 "show-error",
                 "compressed",
                 config_line("connect-timeout", "20"),
-                config_line("max-time", "35"),
+                config_line("max-time", "120" if method == "POST" else "35"),
                 config_line("dump-header", header_file.name),
                 config_line("output", body_file.name),
             ]
+
+            if method == "POST":
+                config.append(config_line("data-binary", "@" + request_body_file.name))
 
             if proxy:
                 config.append(config_line("proxy", proxy))
@@ -179,19 +213,14 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 input=("\n".join(config) + "\n").encode(),
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
-                timeout=45,
+                timeout=130 if method == "POST" else 45,
             )
 
             raw_headers = header_file.read()
             body = body_file.read()
 
         if proc.returncode != 0 and not raw_headers:
-            message = b"upstream fetch failed"
-            self.send_response(502)
-            self.send_header("content-type", "text/plain")
-            self.send_header("content-length", str(len(message)))
-            self.end_headers()
-            self.wfile.write(message)
+            self.send_text_error(502, "upstream fetch failed")
             return
 
         status, headers = parse_response_headers(raw_headers)
@@ -201,6 +230,23 @@ class ProxyHandler(BaseHTTPRequestHandler):
         self.send_header("content-length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def do_GET(self):
+        if self.path == "/_health":
+            self.send_response(200)
+            self.send_header("content-type", "text/plain")
+            self.send_header("content-length", "2")
+            self.end_headers()
+            self.wfile.write(b"ok")
+            return
+
+        self.proxy_request("GET")
+
+    def do_POST(self):
+        body = self.request_body()
+        if body is None:
+            return
+        self.proxy_request("POST", body)
 
 
 def main():

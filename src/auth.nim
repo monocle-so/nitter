@@ -1,5 +1,5 @@
 #SPDX-License-Identifier: AGPL-3.0-only
-import std/[asyncdispatch, times, json, random, strutils, tables, packedsets, deques, os]
+import std/[asyncdispatch, times, json, random, strutils, tables, packedsets, deques, os, sets]
 import types, consts
 import experimental/parser/session
 
@@ -25,6 +25,7 @@ var
 
   requestQueue: Deque[QueuedRequest]
   dispatcherActive = false
+  activeAccountWrites = initHashSet[int64]()
 
 proc setMaxConcurrentReqs*(reqs: int) =
   if reqs > 0:
@@ -339,6 +340,41 @@ proc getSession*(req: ApiReq): Future[Session] {.async.} =
 
   asyncCheck dispatchLoop()
   result = await fut
+
+proc acquireAccountWriteSession*(accountId: int64): Future[Session] {.async.} =
+  ## Acquires the exact account requested by a state-changing API call. This
+  ## intentionally never falls back to another pooled session.
+  var session: Session
+  for candidate in sessionPool:
+    if candidate.id == accountId:
+      session = candidate
+      break
+
+  if session.isNil:
+    raise newException(KeyError, "Account not found")
+  if session.kind != SessionKind.cookie:
+    raise newException(ValueError, "Account is not a cookie session")
+  if session.authToken.len == 0 or session.ct0.len == 0:
+    raise newException(BadClientError, "Account cookie credentials are incomplete")
+
+  while accountId in activeAccountWrites or session.nextAvailableAt > nowMs():
+    await sleepAsync(dispatchPollMs)
+
+  if session.limited and (epochTime().int - session.limitedAt) <= hourInSeconds:
+    raise rateLimitError()
+  if session.limited:
+    session.limited = false
+
+  activeAccountWrites.incl accountId
+  inc session.pending
+  result = session
+
+proc releaseAccountWriteSession*(session: Session) =
+  if session.isNil:
+    return
+  activeAccountWrites.excl session.id
+  if session.pending > 0:
+    dec session.pending
 
 proc setLimited*(session: Session; req: ApiReq) =
   let api = req.endpoint(session)

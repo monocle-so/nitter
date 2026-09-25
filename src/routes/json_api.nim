@@ -4,9 +4,9 @@ import asyncdispatch, json, options, strutils, times
 import jester
 
 import router_utils
-import ".."/[api, auth, query, redis_cache, types]
+import ".."/[api, auth, profile_update, query, redis_cache, types]
 
-export api, query, redis_cache, types
+export api, profile_update, query, redis_cache, types
 
 proc dateJson*(dt: DateTime): JsonNode =
   try:
@@ -239,6 +239,20 @@ proc profileJson*(profile: Profile): JsonNode =
   result["user"] = userJson(profile.user)
   result["timeline"] = timelineJson(profile.tweets)
 
+proc profileUpdateJson*(update: ProfileUpdateResult): JsonNode =
+  result = newJObject()
+  result["ok"] = %true
+  result["account_id"] = %update.accountId
+  result["updated_fields"] = %update.updatedFields
+
+  let mediaIds = newJObject()
+  if update.profileImageMediaId.len > 0:
+    mediaIds["profile_image"] = %update.profileImageMediaId
+  if update.bannerImageMediaId.len > 0:
+    mediaIds["banner_image"] = %update.bannerImageMediaId
+  result["media_ids"] = mediaIds
+  result["profile"] = userJson(update.profile)
+
 proc apiIndexJson*(): JsonNode =
   result = newJObject()
   result["name"] = %"Nitter local REST API"
@@ -256,7 +270,8 @@ proc apiIndexJson*(): JsonNode =
     "/api/v1/tweets/:id",
     "/api/v1/tweets/:id/replies",
     "/api/v1/search/tweets?q=...",
-    "/api/v1/search/users?q=..."
+    "/api/v1/search/users?q=...",
+    "POST /api/v1/accounts/:account_id/profile"
   ]:
     endpoints.add %endpoint
   result["endpoints"] = endpoints
@@ -291,6 +306,27 @@ proc createJsonApiRouter*(cfg: Config) =
 
     get "/api/v1/health/?":
       respApi(healthJson())
+
+    post "/api/v1/accounts/@account_id/profile/?":
+      let accountId = @"account_id"
+      if not validId(accountId):
+        respApiError(Http400, "Invalid account ID")
+
+      var numericAccountId: int64
+      try:
+        numericAccountId = parseBiggestInt(accountId)
+      except ValueError:
+        respApiError(Http400, "Invalid account ID")
+      if numericAccountId <= 0:
+        respApiError(Http400, "Invalid account ID")
+
+      try:
+        let updateRequest = parseProfileUpdateRequest(
+          request.headers.getOrDefault("Content-Type"), request.body)
+        let update = await updateAccountProfile(numericAccountId, updateRequest)
+        respApi(profileUpdateJson(update))
+      except ProfileRequestError as error:
+        respApiError(HttpCode(error.status), error.msg)
 
     get "/api/v1/users/@name/?":
       let name = @"name"

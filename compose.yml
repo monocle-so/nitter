@@ -20,12 +20,14 @@ services:
       NITTER_PROXY_AUTH: ${NITTER_PROXY_AUTH:-}
       NITTER_PROXY_SESSION_PER_ACCOUNT: ${NITTER_PROXY_SESSION_PER_ACCOUNT:-true}
       NITTER_API_PROXY: ${NITTER_API_PROXY:-http://nitter-api-proxy:7000}
+      NITTER_API_PROXY_REQUIRED: ${NITTER_API_PROXY_REQUIRED:-true}
       NITTER_CONF_FILE: /config/nitter.conf
       NITTER_SESSIONS_FILE: ${NITTER_SESSIONS_FILE:-/config/sessions.jsonl}
       NITTER_MAX_CONCURRENT_REQS: ${NITTER_MAX_CONCURRENT_REQS:-1}
       NITTER_MIN_REQUEST_INTERVAL_MS: ${NITTER_MIN_REQUEST_INTERVAL_MS:-3000}
       NITTER_ERROR_COOLDOWN_MS: ${NITTER_ERROR_COOLDOWN_MS:-60000}
       NITTER_RATE_LIMIT_REMAINING_BUFFER: ${NITTER_RATE_LIMIT_REMAINING_BUFFER:-10}
+      NITTER_BEARER_TOKEN: ${NITTER_BEARER_TOKEN:-}
     volumes:
       - nitter-config:/config:ro
     depends_on:
@@ -37,7 +39,7 @@ services:
         condition: service_started
     restart: unless-stopped
     healthcheck:
-      test: wget -nv --tries=1 --spider http://127.0.0.1:8080/api/v1/health || exit 1
+      test: wget -nv --tries=1 --spider http://127.0.0.1:8080/.health || exit 1
       interval: 30s
       timeout: 5s
       retries: 2

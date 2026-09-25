@@ -18,6 +18,12 @@ var
   maxRetries: int
   retryDelayMs: int
 
+type
+  UpstreamResponse* = object
+    status*: int
+    headers*: HttpHeaders
+    body*: string
+
 proc setDisableTid*(disable: bool) =
   disableTid = disable
 
@@ -101,6 +107,60 @@ proc genHeaders*(session: Session, url: Uri, skipTid: bool): Future[HttpHeaders]
       result["authorization"] = bearerToken
       result["x-client-transaction-id"] = await genTid(url.path)
 
+proc requestWithSession*(session: Session; url: Uri; httpMethod: HttpMethod;
+                         body = ""; contentType = "application/json";
+                         skipTid = false;
+                         forceWebBearer = false): Future[UpstreamResponse] {.async.} =
+  ## Performs an upstream request with one explicitly selected session. This
+  ## bypasses the read-session dispatcher. GraphQL reads can still use the
+  ## configured transport proxy while retaining this session's cookie headers.
+  once:
+    pool = HttpPool()
+
+  var headers = await genHeaders(session, url, skipTid)
+  if forceWebBearer and session.kind == SessionKind.cookie:
+    headers["authorization"] = bearerToken
+  headers["content-type"] = contentType
+  headers["cache-control"] = "no-cache"
+  headers["pragma"] = "no-cache"
+  let
+    useApiProxy = apiProxy.len > 0 and
+      url.hostname in ["x.com", "api.x.com", "upload.x.com"]
+    fetchUrl =
+      if useApiProxy: ($url).replace("https://", apiProxy)
+      else: $url
+    proxyKey =
+      if useApiProxy: ""
+      else: getHttpProxyKey(session)
+
+  try:
+    var response: AsyncResponse
+    pool.use(headers, proxyKey):
+      response = await c.request(fetchUrl, httpMethod=httpMethod, body=body)
+      result.body = await response.body
+      result.headers = response.headers
+      let statusText = response.status
+      if statusText.len >= 3:
+        result.status = parseInt(statusText[0 .. 2])
+
+      if result.status == 503:
+        badClient = true
+        raise newException(BadClientError, "Bad upstream client")
+
+    if result.headers.getOrDefault("content-encoding") == "gzip":
+      result.body = uncompress(result.body, dfGzip)
+
+    if result.status == 429:
+      session.setCooldown()
+      raise rateLimitError()
+  except RateLimitError, BadClientError:
+    raise
+  except ProtocolError:
+    raise newException(BadClientError, "Connection closed by upstream")
+  except OSError as e:
+    session.setCooldown()
+    raise newException(BadClientError, e.msg)
+
 proc getAndValidateSession*(req: ApiReq): Future[Session] {.async.} =
   result = await getSession(req)
   case result.kind
@@ -143,7 +203,7 @@ template fetchImpl(result, fetchBody) {.dirty.} =
       of oauth: req.oauth.skipTid
       of cookie: req.cookie.skipTid
     let headers = await genHeaders(session, url, skipTid)
-    let useApiProxy = apiProxy.len > 0 and "/1.1/" notin url.path
+    let useApiProxy = apiProxy.len > 0
     let fetchUrl =
       if useApiProxy: ($url).replace("https://", apiProxy)
       else: $url

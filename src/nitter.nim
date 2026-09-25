@@ -15,6 +15,9 @@ let
 
   sessionsPath = getEnv("NITTER_SESSIONS_FILE", "./sessions.jsonl")
 
+if cfg.apiProxyRequired and cfg.apiProxy.strip().len == 0:
+  quit "NITTER_API_PROXY_REQUIRED is enabled but NITTER_API_PROXY is empty", QuitFailure
+
 initSessionPool(cfg, sessionsPath)
 
 if not cfg.enableDebug:
@@ -59,23 +62,19 @@ settings:
   staticDir = normalizedPath(cfg.staticDir)
   bindAddr = cfg.address
   reusePort = true
-  maxBody = 64 * 1024
+  maxBody = 12 * 1024 * 1024
 
 let bearerToken = getEnv("NITTER_BEARER_TOKEN")
 
 routes:
   before:
-    # Media-proxy routes are exempt: they need to be fetchable by third
-    # parties (e.g. an LLM provider downloading an image URL) that can't be
-    # handed our bearer token.
-    let isMediaRoute = request.path.startsWith("/pic") or request.path.startsWith("/video")
-    # Debug/health routes are exempt so uptime checks and operators can read
-    # them without the bearer token. /.sessions is still gated separately
-    # behind cfg.enableDebug.
-    let isDebugRoute = request.path == "/.health" or request.path == "/.sessions"
-    if bearerToken.len > 0 and not isMediaRoute and not isDebugRoute and
-        request.headers.getOrDefault("Authorization") != &"Bearer {bearerToken}":
-      halt Http401
+    if request.path.startsWith("/api/v1"):
+      if bearerToken.len == 0:
+        halt Http503, {"Content-Type": "application/json; charset=utf-8"},
+             $jsonError("NITTER_BEARER_TOKEN is not configured")
+      if request.headers.getOrDefault("Authorization") != &"Bearer {bearerToken}":
+        halt Http401, {"Content-Type": "application/json; charset=utf-8"},
+             $jsonError("Unauthorized")
 
     # Reject malformed paths
     if request.path.len == 0 or request.path[0] != '/':

@@ -96,6 +96,22 @@ suite "per-endpoint session pacing and concurrency":
     release(otherEndpoint, posts)
     check first.pending == 0
 
+  test "account writes select and serialize the exact cookie session":
+    let account = waitFor acquireAccountWriteSession(1)
+    check account.id == 1
+    check account.kind == SessionKind.cookie
+    let waiting = acquireAccountWriteSession(1)
+    check not waitFor withTimeout(waiting, 20)
+    releaseAccountWriteSession(account)
+    check waitFor withTimeout(waiting, 2000)
+    if waiting.finished:
+      check waiting.read() == account
+      releaseAccountWriteSession(waiting.read())
+
+  test "account writes never fall back to another session":
+    expect KeyError:
+      discard waitFor acquireAccountWriteSession(999)
+
   test "different query parameters still share the same endpoint slot":
     setSessionSafety(0, 60_000, 10)
     let account = waitFor getSession(search)

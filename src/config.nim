@@ -59,6 +59,8 @@ proc getConfig*(path: string): (Config, parseCfg.Config) =
     proxySessionPerAccount: cfg.getEnvOrConfig(
       "NITTER_PROXY_SESSION_PER_ACCOUNT", "Config", "proxySessionPerAccount", false),
     apiProxy: cfg.getEnvOrConfig("NITTER_API_PROXY", "Config", "apiProxy", ""),
+    apiProxyRequired: cfg.getEnvOrConfig(
+      "NITTER_API_PROXY_REQUIRED", "Config", "apiProxyRequired", false),
     disableTid: cfg.get("Config", "disableTid", false),
     maxConcurrentReqs: cfg.getEnvOrConfig("NITTER_MAX_CONCURRENT_REQS", "Config", "maxConcurrentReqs", 1),
     minRequestIntervalMs: cfg.getEnvOrConfig("NITTER_MIN_REQUEST_INTERVAL_MS", "Config", "minRequestIntervalMs", 3000),

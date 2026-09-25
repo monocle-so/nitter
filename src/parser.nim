@@ -981,4 +981,3 @@ proc parseGraphCommunityMembers*(js: JsonNode; after=""): Result[User] =
   let cursor = slice{"slice_info", "next_cursor"}.getStr
   if cursor.len > 0:
     result.bottom = cursor
-

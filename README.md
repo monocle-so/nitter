@@ -4,9 +4,24 @@ cp nitter.example.conf nitter.conf
 docker compose up -d --build
 
 Test:
-curl -fsS http://127.0.0.1:8080/api/v1/health
-curl -i http://127.0.0.1:8080/api/v1/users/jack
-curl -i --get http://127.0.0.1:8080/api/v1/search/tweets --data-urlencode 'q="Owner.com" restaurant'
+curl -fsS -H "Authorization: Bearer $NITTER_BEARER_TOKEN" http://127.0.0.1:8080/api/v1/health
+curl -i -H "Authorization: Bearer $NITTER_BEARER_TOKEN" http://127.0.0.1:8080/api/v1/users/jack
+curl -i -H "Authorization: Bearer $NITTER_BEARER_TOKEN" --get http://127.0.0.1:8080/api/v1/search/tweets --data-urlencode 'q="Owner.com" restaurant'
+
+Update a configured cookie account's profile using its numeric account ID:
+
+curl -i -X POST \
+  -H "Authorization: Bearer $NITTER_BEARER_TOKEN" \
+  -F 'name=Sammy Jones' \
+  -F 'bio=Building things.' \
+  -F 'website_url=https://example.com' \
+  -F 'profile_image=@avatar.png;type=image/png' \
+  -F 'banner_image=@banner.jpg;type=image/jpeg' \
+  http://127.0.0.1:8080/api/v1/accounts/123456789/profile
+
+All `/api/v1` routes require `NITTER_BEARER_TOKEN`. Profile writes require a
+matching cookie session with a populated numeric `id`; OAuth sessions are
+read-only.
 
 Request pacing (`minRequestIntervalMs`, or `NITTER_MIN_REQUEST_INTERVAL_MS`)
 and concurrency (`maxConcurrentReqs`, or `NITTER_MAX_CONCURRENT_REQS`) are per

@@ -427,6 +427,7 @@ type
     proxyAuth*: string
     proxySessionPerAccount*: bool
     apiProxy*: string
+    apiProxyRequired*: bool
     disableTid*: bool
     maxConcurrentReqs*: int
     minRequestIntervalMs*: int
