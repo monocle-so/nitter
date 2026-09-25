@@ -35,10 +35,12 @@ type
   Session* = ref object
     id*: int64
     username*: string
-    pending*: int
+    pending*: int # total in-flight requests, for diagnostics
+    pendingByEndpoint*: Table[string, int]
     limited*: bool
     limitedAt*: int
-    nextAvailableAt*: int64
+    nextAvailableAt*: int64 # account-wide error cooldown
+    nextRequestAt*: Table[string, int64] # pacing per upstream endpoint
     apis*: Table[string, RateLimit]
     case kind*: SessionKind
     of oauth:

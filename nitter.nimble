@@ -26,6 +26,9 @@ requires "oauth == 0.11"
 
 # Tasks
 
+task testSessions, "Test session scheduling without network requests":
+  exec "nim c -r --assertions:on tests/test_session_pacing.nim"
+
 task scss, "Generate css":
   exec "nim r --hint[Processing]:off tools/gencss"
 

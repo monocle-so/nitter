@@ -228,7 +228,7 @@ template fetchImpl(result, fetchBody) {.dirty.} =
     session.setCooldown()
     raise rateLimitError()
   finally:
-    release(session)
+    release(session, req)
 
 template retry(bod) {.dirty.} =
   var session: Session

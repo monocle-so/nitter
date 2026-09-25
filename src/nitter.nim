@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-import asyncdispatch, strformat, logging, strutils
+import asyncdispatch, json, strformat, logging, strutils
 from net import Port
 from os import getEnv, normalizedPath
 

@@ -16,7 +16,7 @@ type
 var
   sessionPool: seq[Session]
   enableLogging = false
-  # max requests at a time per session to avoid race conditions
+  # max requests at a time per upstream endpoint on each session
   maxConcurrentReqs = 1
   minRequestIntervalMs = 3000
   errorCooldownMs = 60 * 1000
@@ -76,6 +76,7 @@ proc getSessionPoolHealth*(): JsonNode =
   var
     totalReqs = 0
     coolingDown = 0
+    pacing = 0
     limited: PackedSet[int64]
     reqsPerApi: Table[string, int]
     oldest = now.int64
@@ -105,6 +106,11 @@ proc getSessionPoolHealth*(): JsonNode =
     if session.nextAvailableAt > nowMs():
       inc coolingDown
 
+    for deadline in session.nextRequestAt.values:
+      if deadline > nowMs():
+        inc pacing
+        break
+
     for api in session.apis.keys:
       let
         apiStatus = session.apis[api]
@@ -128,6 +134,7 @@ proc getSessionPoolHealth*(): JsonNode =
       "total": sessionPool.len,
       "limited": limited.card,
       "cooling_down": coolingDown,
+      "pacing": pacing,
       "oauth": %*{"total": oauthTotal, "limited": oauthLimited},
       "cookie": %*{"total": cookieTotal, "limited": cookieLimited},
       "oldest": $fromUnix(oldest),
@@ -142,6 +149,7 @@ proc getSessionPoolHealth*(): JsonNode =
 
 proc getSessionPoolDebug*(): JsonNode =
   let now = epochTime().int
+  let currentMs = nowMs()
   var list = newJObject()
 
   for session in sessionPool:
@@ -153,8 +161,8 @@ proc getSessionPoolDebug*(): JsonNode =
 
     if session.limited:
       sessionJson["limited"] = %true
-    if session.nextAvailableAt > nowMs():
-      sessionJson["cooldown_ms"] = %(session.nextAvailableAt - nowMs())
+    if session.nextAvailableAt > currentMs:
+      sessionJson["cooldown_ms"] = %(session.nextAvailableAt - currentMs)
 
     for api in session.apis.keys:
       let
@@ -169,7 +177,20 @@ proc getSessionPoolDebug*(): JsonNode =
         continue
 
       sessionJson{"apis", $api} = obj
-      list[$session.id] = sessionJson
+
+    for api, deadline in session.nextRequestAt:
+      if deadline > currentMs:
+        if api notin sessionJson["apis"]:
+          sessionJson["apis"][api] = newJObject()
+        sessionJson["apis"][api]["pacing_ms"] = %(deadline - currentMs)
+
+    for api, pending in session.pendingByEndpoint:
+      if pending > 0:
+        if api notin sessionJson["apis"]:
+          sessionJson["apis"][api] = newJObject()
+        sessionJson["apis"][api]["pending"] = %pending
+
+    list[$session.id] = sessionJson
 
   return %list
 
@@ -201,19 +222,26 @@ proc isLimited(session: Session; req: ApiReq): bool =
   else:
     return false
 
-proc isCoolingDown(session: Session): bool =
-  not session.isNil and session.nextAvailableAt > nowMs()
+proc isCoolingDown(session: Session; req: ApiReq): bool =
+  if session.isNil:
+    return false
+  let now = nowMs()
+  session.nextAvailableAt > now or
+    session.nextRequestAt.getOrDefault(req.endpoint(session)) > now
 
 proc isReady(session: Session; req: ApiReq): bool =
-  not (session.isNil or session.pending >= maxConcurrentReqs or
-       session.isCoolingDown() or session.isLimited(req))
+  not (session.isNil or
+       session.pendingByEndpoint.getOrDefault(req.endpoint(session)) >= maxConcurrentReqs or
+       session.isCoolingDown(req) or session.isLimited(req))
 
-proc reserve(session: Session) =
+proc reserve(session: Session; req: ApiReq) =
+  let api = req.endpoint(session)
   inc session.pending
+  session.pendingByEndpoint.mgetOrPut(api, 0).inc
   if minRequestIntervalMs > 0:
     let next = nowMs() + minRequestIntervalMs
-    if session.nextAvailableAt < next:
-      session.nextAvailableAt = next
+    if session.nextRequestAt.getOrDefault(api) < next:
+      session.nextRequestAt[api] = next
 
 proc setCooldown*(session: Session; ms = errorCooldownMs) =
   if session.isNil or ms <= 0:
@@ -232,9 +260,11 @@ proc invalidate*(session: var Session) =
   if idx > -1: sessionPool.delete(idx)
   session = nil
 
-proc release*(session: Session) =
+proc release*(session: Session; req: ApiReq) =
   if session.isNil: return
-  if session.pending > 0:
+  let api = req.endpoint(session)
+  if session.pendingByEndpoint.getOrDefault(api) > 0:
+    dec session.pendingByEndpoint[api]
     dec session.pending
 
 proc findReadySession(req: ApiReq): Session =
@@ -277,7 +307,7 @@ proc dispatchLoop() {.async.} =
         if session.isNil:
           remaining.addLast(item)
         else:
-          session.reserve()
+          session.reserve(item.req)
           item.fut.complete(session)
       requestQueue = remaining
       if requestQueue.len > 0:
@@ -292,7 +322,7 @@ proc getSession*(req: ApiReq): Future[Session] {.async.} =
 
   let ready = findReadySession(req)
   if not ready.isNil:
-    ready.reserve()
+    ready.reserve(req)
     return ready
 
   # no session is immediately available; queue this request rather than
