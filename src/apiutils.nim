@@ -110,7 +110,8 @@ proc genHeaders*(session: Session, url: Uri, skipTid: bool): Future[HttpHeaders]
 proc requestWithSession*(session: Session; url: Uri; httpMethod: HttpMethod;
                          body = ""; contentType = "application/json";
                          skipTid = false;
-                         forceWebBearer = false): Future[UpstreamResponse] {.async.} =
+                         forceWebBearer = false;
+                         includeTid = false): Future[UpstreamResponse] {.async.} =
   ## Performs an upstream request with one explicitly selected session. This
   ## bypasses the read-session dispatcher. GraphQL reads can still use the
   ## configured transport proxy while retaining this session's cookie headers.
@@ -120,6 +121,9 @@ proc requestWithSession*(session: Session; url: Uri; httpMethod: HttpMethod;
   var headers = await genHeaders(session, url, skipTid)
   if forceWebBearer and session.kind == SessionKind.cookie:
     headers["authorization"] = bearerToken
+  if includeTid and session.kind == SessionKind.cookie and
+      not headers.hasKey("x-client-transaction-id"):
+    headers["x-client-transaction-id"] = await genTid(url.path, $httpMethod)
   headers["content-type"] = contentType
   headers["cache-control"] = "no-cache"
   headers["pragma"] = "no-cache"

@@ -3,7 +3,7 @@ import std/[asyncdispatch, httpclient, options, sets, strutils, sysrand,
             tables, unicode, uri]
 import packedjson
 
-import apiutils, auth, consts, types
+import apiutils, auth, parserutils, types
 import experimental/parser as experimentalParser
 
 const
@@ -35,11 +35,18 @@ type
     bannerImageMediaId*: string
     profile*: User
 
+  ProfileReadResult* = object
+    snapshot*: ProfileSnapshot
+    profile*: User
+
   ProfileSnapshot* = object
     name*: string
     bio*: string
     websiteUrl*: string
     location*: string
+
+  AccountSettings* = object
+    screenName*: string
 
   MultipartPart = object
     name: string
@@ -312,60 +319,143 @@ proc requireSuccess(response: UpstreamResponse; operation: string) =
     raise profileError(422, message)
   raise profileError(502, message)
 
-proc graphUserUrl(accountId: int64): Uri =
-  let params = @[
-    ("variables", $(%*{"rest_id": $accountId})),
-    ("features", gqlFeatures)
+proc getProfileUrl(username: string): Uri =
+  parseUri("https://x.com/i/api") /
+    "graphql/KybxDj9RrADIITXlGG8kpw/UserByScreenName" ? @[
+      ("variables", $(%*{
+        "screen_name": username,
+        "withGrokTranslatedBio": true
+      })),
+      ("fieldToggles", """{"withPayments":false,"withAuxiliaryUserLabels":true}""")
+    ]
+
+proc accountSettingsUrl(): Uri =
+  parseUri("https://api.x.com/1.1/account/settings.json") ? @[
+    ("include_ext_sharing_audiospaces_listening_data_with_followers", "true"),
+    ("include_mention_filter", "true"),
+    ("include_nsfw_user_flag", "true"),
+    ("include_nsfw_admin_flag", "true"),
+    ("include_ranked_timeline", "true"),
+    ("include_alt_text_compose", "true"),
+    ("include_ext_dm_av_call_settings", "true"),
+    ("ext", "ssoConnections"),
+    ("include_country_code", "true"),
+    ("include_ext_dm_nsfw_media_filter", "true")
   ]
-  parseUri("https://x.com/i/api") / ("graphql/" & graphUserById) ? params
 
-proc parseProfileSnapshot*(body: string; accountId: int64): ProfileSnapshot =
+proc parseAccountSettings*(body: string): AccountSettings =
   let parsed = parseJson(body)
-  var user = parsed{"data", "user_result", "result"}
-  if user.kind == JNull:
-    user = parsed{"data", "user_result_by_rest_id", "result"}
-  if user.kind == JNull:
-    user = parsed{"data", "user", "result"}
-  if user.kind == JNull or user{"rest_id"}.getStr != $accountId:
-    raise profileError(502, "Profile snapshot returned no matching user")
+  let screenName = parsed{"screen_name"}
+  if screenName.kind != JString or screenName.getStr.len == 0 or
+      screenName.getStr.len > 20 or
+      not screenName.getStr.allCharsInSet({'a'..'z', 'A'..'Z', '0'..'9', '_'}):
+    raise profileError(502, "Account settings returned no valid screen name")
+  result.screenName = screenName.getStr
 
-  let legacy = user{"legacy"}
-  result.name = legacy{"name"}.getStr(user{"core", "name"}.getStr)
-  result.bio = legacy{"description"}.getStr(
-    user{"profile_bio", "description"}.getStr)
-  result.location = legacy{"location"}.getStr(
-    user{"location", "location"}.getStr)
-  let urls = legacy{"entities", "url", "urls"}
-  if urls.kind == JArray and urls.len > 0:
-    result.websiteUrl = urls[0]{"expanded_url"}.getStr
-  if result.websiteUrl.len == 0:
-    result.websiteUrl = legacy{"url"}.getStr
-  if result.name.len == 0:
-    raise profileError(502, "Profile snapshot returned no display name")
-
-proc fetchProfileBody(session: Session; accountId: int64): Future[string] {.async.} =
+proc getAccountSettings(session: Session): Future[AccountSettings] {.async.} =
   let response = await requestWithSession(
-    session, graphUserUrl(accountId), HttpGet, skipTid=false)
-  requireSuccess(response, "Profile snapshot")
-  result = response.body
-
-proc fetchCurrentProfile(session: Session;
-                         accountId: int64): Future[ProfileSnapshot] {.async.} =
+    session, accountSettingsUrl(), HttpGet, forceWebBearer=true,
+    includeTid=true)
+  requireSuccess(response, "Account settings")
   try:
-    result = parseProfileSnapshot(await fetchProfileBody(session, accountId), accountId)
+    result = parseAccountSettings(response.body)
   except ProfileRequestError:
     raise
   except CatchableError:
+    raise profileError(502, "Account settings returned invalid JSON")
+
+proc profileResult(body: string; accountId: int64): JsonNode =
+  let parsed = parseJson(body)
+  result = parsed{"data", "user", "result"}
+  if result.kind == JNull or result{"rest_id"}.getStr != $accountId:
+    raise profileError(502, "Profile response returned no matching user")
+
+proc parseProfileSnapshot*(body: string; accountId: int64): ProfileSnapshot =
+  let user = profileResult(body, accountId)
+  let
+    name = user{"core", "name"}
+    bio = user{"profile_bio", "description"}
+    location = user{"location", "location"}
+    website = user{"website", "url"}
+  if name.kind != JString or name.getStr.len == 0 or bio.kind != JString or
+      location.kind != JString or website.kind != JString:
+    raise profileError(502, "Profile snapshot is missing a profile field")
+
+  result.name = name.getStr
+  result.bio = bio.getStr
+  result.location = location.getStr
+  result.websiteUrl = website.getStr
+
+proc parseProfileUser*(body: string; accountId: int64): User =
+  let user = profileResult(body, accountId)
+  result = experimentalParser.parseGraphUser(body)
+  result.userPic = user{"avatar", "image_url"}.getImageStr.replace("_normal", "")
+  result.website = user{"website", "url"}.getStr
+  result.banner = user{"banner", "image_url"}.getImageStr
+  if result.banner.len > 0:
+    result.banner.add "/1500x500"
+  result.following = user{"relationship_counts", "following"}.getInt
+  result.followers = user{"relationship_counts", "followers"}.getInt
+  result.tweets = user{"tweet_counts", "tweets"}.getInt
+  result.media = user{"tweet_counts", "media_tweets"}.getInt
+  result.likes = user{"action_counts", "favorites_count"}.getInt
+
+proc fetchProfileBody(session: Session; screenName, operation: string): Future[string] {.async.} =
+  let response = await requestWithSession(
+    session, getProfileUrl(screenName), HttpGet)
+  requireSuccess(response, operation)
+  result = response.body
+
+proc fetchCurrentProfile(session: Session; screenName: string;
+                         accountId: int64): Future[ProfileSnapshot] {.async.} =
+  let body = await fetchProfileBody(session, screenName, "Profile snapshot")
+  try:
+    result = parseProfileSnapshot(body, accountId)
+  except ProfileRequestError:
+    raise
+  except CatchableError as error:
+    echo "[profile-update] invalid profile snapshot: account_id=", accountId,
+      ", error=", error.name, ", body=", upstreamErrorPreview(body)
     raise profileError(502, "Profile snapshot returned invalid JSON")
 
-proc fetchResultProfile(session: Session; accountId: int64): Future[User] {.async.} =
+proc fetchResultProfile(session: Session; screenName: string;
+                        accountId: int64): Future[User] {.async.} =
+  let body = await fetchProfileBody(session, screenName, "Resulting profile")
   try:
-    result = experimentalParser.parseGraphUser(
-      await fetchProfileBody(session, accountId))
-  except CatchableError:
+    result = parseProfileUser(body, accountId)
+  except ProfileRequestError:
+    raise
+  except CatchableError as error:
+    echo "[profile-update] invalid resulting profile: account_id=", accountId,
+      ", error=", error.name, ", body=", upstreamErrorPreview(body)
     raise profileError(502, "Resulting profile returned invalid JSON")
   if result.id != $accountId:
     raise profileError(502, "Resulting profile returned no matching user")
+
+proc readAccountProfile*(accountId: int64): Future[ProfileReadResult] {.async.} =
+  var session: Session
+  try:
+    try:
+      session = await acquireAccountWriteSession(accountId)
+    except KeyError:
+      raise profileError(404, "Account not found")
+    except ValueError:
+      raise profileError(409, "Account is not a cookie session")
+
+    let settings = await getAccountSettings(session)
+    let body = await fetchProfileBody(session, settings.screenName, "Profile read")
+    result.snapshot = parseProfileSnapshot(body, accountId)
+    result.profile = parseProfileUser(body, accountId)
+  except ProfileRequestError:
+    raise
+  except RateLimitError:
+    raise profileError(429, "Account session is rate limited")
+  except BadClientError as error:
+    raise profileError(502, error.msg)
+  except CatchableError:
+    raise profileError(502, "Profile read returned invalid JSON")
+  finally:
+    releaseAccountWriteSession(session)
 
 proc multipartUploadBody(data: string): tuple[contentType, body: string] =
   var boundary = "----Nitter"
@@ -455,13 +545,16 @@ proc uploadImage(session: Session; image: ProfileImage;
     forceWebBearer=true)
   await waitForMedia(session, result, finalizeResponse)
 
+proc profileMutationUrl*(endpoint: string): Uri =
+  parseUri("https://api.x.com/1.1") / endpoint
+
 proc postForm(session: Session; endpoint: string;
               params: seq[(string, string)]): Future[void] {.async.} =
-  let url = parseUri("https://x.com/i/api") / ("1.1/" & endpoint)
+  let url = profileMutationUrl(endpoint)
   let response = await requestWithSession(
     session, url, HttpPost, encodeQuery(params),
-    "application/x-www-form-urlencoded", skipTid=true)
-  requireSuccess(response, "Profile update")
+    "application/x-www-form-urlencoded", forceWebBearer=true, includeTid=true)
+  requireSuccess(response, "Profile update: " & endpoint)
 
 proc updateAccountProfile*(accountId: int64;
                            request: ProfileUpdateRequest): Future[ProfileUpdateResult] {.async.} =
@@ -475,9 +568,11 @@ proc updateAccountProfile*(accountId: int64;
       raise profileError(409, "Account is not a cookie session")
 
     var current: ProfileSnapshot
+    var screenName = ""
     let hasText = request.name.isSome or request.bio.isSome or request.websiteUrl.isSome
     if hasText:
-      current = await fetchCurrentProfile(session, accountId)
+      screenName = (await getAccountSettings(session)).screenName
+      current = await fetchCurrentProfile(session, screenName, accountId)
 
     if request.profileImage.isSome:
       result.profileImageMediaId = await uploadImage(session, request.profileImage.get)
@@ -497,11 +592,15 @@ proc updateAccountProfile*(accountId: int64;
         ("media_id", result.bannerImageMediaId)
       ])
 
-    result.profile = await fetchResultProfile(session, accountId)
+    if screenName.len == 0:
+      screenName = (await getAccountSettings(session)).screenName
+    result.profile = await fetchResultProfile(session, screenName, accountId)
     result.accountId = $accountId
     result.updatedFields = request.updatedFieldNames
-  except ProfileRequestError, RateLimitError:
+  except ProfileRequestError:
     raise
+  except RateLimitError:
+    raise profileError(429, "Account session is rate limited")
   except BadClientError as e:
     raise profileError(502, e.msg)
   except CatchableError as e:

@@ -40,7 +40,11 @@ proc encodeBase64[T](data: T): string =
 proc decodeBase64(data: string): seq[byte] =
   return cast[seq[byte]](decode(data))
 
-proc genTid*(path: string): Future[string] {.async.} =
+proc transactionIdHashInput*(httpMethod, path: string;
+                             timeNow: int; animationKey: string): string =
+  httpMethod & "!" & path & "!" & $timeNow & defaultKeyword & animationKey
+
+proc genTid*(path: string; httpMethod = "GET"): Future[string] {.async.} =
   let 
     pair = await getPair()
 
@@ -52,7 +56,7 @@ proc genTid*(path: string): Future[string] {.async.} =
       byte((timeNow shr 24) and 0xff)
     ]
 
-    data = "GET!" & path & "!" & $timeNow & defaultKeyword & pair.animationKey
+    data = transactionIdHashInput(httpMethod, path, timeNow, pair.animationKey)
     hashBytes = encodeSha256(data)
     keyBytes = decodeBase64(pair.verification)
     bytesArr = keyBytes & timeNowBytes & hashBytes[0 ..< 16] & @[3'u8]

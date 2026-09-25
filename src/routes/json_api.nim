@@ -253,6 +253,17 @@ proc profileUpdateJson*(update: ProfileUpdateResult): JsonNode =
   result["media_ids"] = mediaIds
   result["profile"] = userJson(update.profile)
 
+proc profileReadJson*(accountId: string; read: ProfileReadResult): JsonNode =
+  result = newJObject()
+  result["account_id"] = %accountId
+  result["snapshot"] = %*{
+    "name": read.snapshot.name,
+    "bio": read.snapshot.bio,
+    "website_url": read.snapshot.websiteUrl,
+    "location": read.snapshot.location
+  }
+  result["profile"] = userJson(read.profile)
+
 proc apiIndexJson*(): JsonNode =
   result = newJObject()
   result["name"] = %"Nitter local REST API"
@@ -271,6 +282,7 @@ proc apiIndexJson*(): JsonNode =
     "/api/v1/tweets/:id/replies",
     "/api/v1/search/tweets?q=...",
     "/api/v1/search/users?q=...",
+    "GET /api/v1/accounts/:account_id/profile",
     "POST /api/v1/accounts/:account_id/profile"
   ]:
     endpoints.add %endpoint
@@ -306,6 +318,24 @@ proc createJsonApiRouter*(cfg: Config) =
 
     get "/api/v1/health/?":
       respApi(healthJson())
+
+    get "/api/v1/accounts/@account_id/profile/?":
+      let accountId = @"account_id"
+      if not validId(accountId):
+        respApiError(Http400, "Invalid account ID")
+
+      var numericAccountId: int64
+      try:
+        numericAccountId = parseBiggestInt(accountId)
+      except ValueError:
+        respApiError(Http400, "Invalid account ID")
+      if numericAccountId <= 0:
+        respApiError(Http400, "Invalid account ID")
+
+      try:
+        respApi(profileReadJson(accountId, await readAccountProfile(numericAccountId)))
+      except ProfileRequestError as error:
+        respApiError(HttpCode(error.status), error.msg)
 
     post "/api/v1/accounts/@account_id/profile/?":
       let accountId = @"account_id"

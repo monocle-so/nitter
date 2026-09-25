@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-import std/[options, strutils, unittest]
+import std/[options, strutils, unittest, uri]
 
 import ".."/src/profile_update
+import ".."/src/tid
 
 const boundary = "nitter-profile-test-boundary"
 
@@ -21,6 +22,27 @@ proc multipart(parts: varargs[string]): tuple[contentType, body: string] =
   result.body = parts.join("") & "--" & boundary & "--\c\L"
 
 suite "profile update request parsing":
+  test "profile mutations use the X API host":
+    check $profileMutationUrl("account/update_profile.json") ==
+      "https://api.x.com/1.1/account/update_profile.json"
+
+  test "profile POST transaction IDs hash the POST method":
+    check transactionIdHashInput("POST", "/1.1/account/update_profile.json",
+      42, "key") ==
+      "POST!/1.1/account/update_profile.json!42obfiowerehiringkey"
+
+  test "account settings supplies the screen name for a selected session":
+    let settings = parseAccountSettings("""{
+      "screen_name": "david_simi3",
+      "protected": false,
+      "ext": {"ssoConnections": {"r": {"ok": []}}}
+    }""")
+    check settings.screenName == "david_simi3"
+
+  test "account settings rejects a missing screen name":
+    expect ProfileRequestError:
+      discard parseAccountSettings("""{"protected": false}""")
+
   test "parses text and binary fields without base64 encoding":
     let input = multipart(
       textPart("name", "Sammy Jones"),
@@ -56,23 +78,64 @@ suite "profile update request parsing":
       ("location", "Los Angeles")
     ]
 
-  test "snapshot merging preserves raw bio text instead of rendered HTML":
-    let snapshot = parseProfileSnapshot("""{
-      "data": {"user_result": {"result": {
+  test "new profile response preserves text and normalizes images":
+    let body = """{
+      "data": {"user": {"result": {
+        "__typename": "User",
         "rest_id": "123",
-        "legacy": {
-          "name": "Old Name",
-          "description": "Visit https://example.com",
-          "location": "Los Angeles",
-          "url": "https://t.co/example",
-          "entities": {"url": {"urls": [{
-            "expanded_url": "https://example.com"
-          }]}}
-        }
+        "core": {"name": "Old Name", "screen_name": "sample", "created_at": "Sun May 11 15:24:21 +0000 2025"},
+        "profile_bio": {"description": "Visit https://example.com"},
+        "location": {"location": "Los Angeles"},
+        "website": {"url": "https://example.com"},
+        "avatar": {"image_url": "https://pbs.twimg.com/profile_images/123/avatar_normal.jpg"},
+        "banner": {"image_url": "https://pbs.twimg.com/profile_banners/123/456"},
+        "action_counts": {"favorites_count": 12},
+        "relationship_counts": {"following": 4, "followers": 5},
+        "tweet_counts": {"tweets": 6, "media_tweets": 7},
+        "is_blue_verified": true
       }}}
-    }""", 123)
+    }"""
+    let snapshot = parseProfileSnapshot(body, 123)
+    check snapshot.name == "Old Name"
     check snapshot.bio == "Visit https://example.com"
+    check snapshot.location == "Los Angeles"
     check snapshot.websiteUrl == "https://example.com"
+
+    let user = parseProfileUser(body, 123)
+    check user.id == "123"
+    check user.username == "sample"
+    check user.fullname == "Old Name"
+    check user.website == "https://example.com"
+    check user.userPic == "profile_images/123/avatar.jpg"
+    check user.banner == "profile_banners/123/456/1500x500"
+    check user.likes == 12
+    check user.following == 4
+    check user.followers == 5
+    check user.tweets == 6
+    check user.media == 7
+
+  test "snapshot rejects a different account before mutation":
+    expect ProfileRequestError:
+      discard parseProfileSnapshot("""{
+        "data": {"user": {"result": {
+          "rest_id": "999",
+          "core": {"name": "Someone else"},
+          "profile_bio": {"description": ""},
+          "location": {"location": ""},
+          "website": {"url": ""}
+        }}}
+      }""", 123)
+
+  test "snapshot rejects missing preserved fields":
+    expect ProfileRequestError:
+      discard parseProfileSnapshot("""{
+        "data": {"user": {"result": {
+          "rest_id": "123",
+          "core": {"name": "Old Name"},
+          "profile_bio": {"description": ""},
+          "location": {"location": ""}
+        }}}
+      }""", 123)
 
   test "rejects duplicate fields":
     let input = multipart(textPart("bio", "first"), textPart("bio", "second"))
