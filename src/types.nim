@@ -181,8 +181,13 @@ type
   QueryKind* = enum
     posts, replies, media, users, tweets, userList, followers, following
 
+  # X's search "product": Top is relevance-ranked, Latest is chronological.
+  SearchSort* = enum
+    latest = "latest", top = "top"
+
   Query* = object
     kind*: QueryKind
+    sort*: SearchSort
     view*: string
     text*: string
     filters*: seq[string]

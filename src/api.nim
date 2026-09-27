@@ -253,6 +253,11 @@ proc getGraphEditHistory*(id: string): Future[EditHistory] {.async.} =
     js = await fetch(url)
   result = parseGraphEditHistory(js, id)
 
+proc searchProduct(sort: SearchSort): string =
+  case sort
+  of top: "Top"
+  of latest: "Latest"
+
 proc getGraphTweetSearch*(query: Query; after=""): Future[Timeline] {.async.} =
   # workaround for #1372
   let maxId =
@@ -268,7 +273,7 @@ proc getGraphTweetSearch*(query: Query; after=""): Future[Timeline] {.async.} =
       "rawQuery": q,
       "count": 20,
       "querySource": "typed_query",
-      "product": "Latest",
+      "product": searchProduct(query.sort),
       "withGrokTranslatedBio":true,
       "withQuickPromoteEligibilityTweetFields":false
     }

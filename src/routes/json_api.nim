@@ -280,7 +280,7 @@ proc apiIndexJson*(): JsonNode =
     "/api/v1/users/:username/following",
     "/api/v1/tweets/:id",
     "/api/v1/tweets/:id/replies",
-    "/api/v1/search/tweets?q=...",
+    "/api/v1/search/tweets?q=...&sort=latest|top",
     "/api/v1/search/users?q=...",
     "GET /api/v1/accounts/:account_id/profile",
     "POST /api/v1/accounts/:account_id/profile"

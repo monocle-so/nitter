@@ -7,6 +7,11 @@ Test:
 curl -fsS -H "Authorization: Bearer $NITTER_BEARER_TOKEN" http://127.0.0.1:8080/api/v1/health
 curl -i -H "Authorization: Bearer $NITTER_BEARER_TOKEN" http://127.0.0.1:8080/api/v1/users/jack
 curl -i -H "Authorization: Bearer $NITTER_BEARER_TOKEN" --get http://127.0.0.1:8080/api/v1/search/tweets --data-urlencode 'q="Owner.com" restaurant'
+curl -i -H "Authorization: Bearer $NITTER_BEARER_TOKEN" --get http://127.0.0.1:8080/api/v1/search/tweets --data-urlencode 'q="Owner.com" restaurant' --data-urlencode 'sort=top'
+```
+
+Tweet search defaults to X's Latest (chronological) results; pass `sort=top` for
+the relevance-ranked Top results instead.
 
 ## Account profile API
 
