@@ -25,6 +25,7 @@ template `@`(param: string): untyped =
 proc initQuery*(pms: Table[string, string]; name=""): Query =
   result = Query(
     kind: parseEnum[QueryKind](@"f", tweets),
+    sort: parseEnum[SearchSort](@"sort", latest),
     view: @"view",
     text: @"q",
     filters: validFilters.filterIt("f-" & it in pms),
@@ -109,6 +110,8 @@ proc genQueryUrl*(query: Query): string =
 
   if query.kind in {tweets, users}:
     params.add &"f={query.kind}"
+    if query.sort != latest:
+      params.add &"sort={query.sort}"
     if query.text.len > 0:
       params.add "q=" & encodeUrl(query.text)
     for f in query.filters:
