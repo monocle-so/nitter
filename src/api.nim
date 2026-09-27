@@ -253,7 +253,7 @@ proc getGraphEditHistory*(id: string): Future[EditHistory] {.async.} =
     js = await fetch(url)
   result = parseGraphEditHistory(js, id)
 
-proc searchProduct(sort: SearchSort): string =
+proc searchProduct*(sort: SearchSort): string =
   case sort
   of top: "Top"
   of latest: "Latest"
