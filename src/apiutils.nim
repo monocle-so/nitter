@@ -9,6 +9,8 @@ const
   rlReset = "x-rate-limit-reset"
   rlLimit = "x-rate-limit-limit"
   npCache = "x-np-cache"
+  # read and stripped by tools/api_proxy.py, never sent to X
+  proxyGroupHeader = "x-nitter-proxy-group"
   errorsToSkip = {null, doesntExist, tweetNotFound, timeout, unauthorized, badRequest}
 
 var
@@ -136,6 +138,8 @@ proc requestWithSession*(session: Session; url: Uri; httpMethod: HttpMethod;
     proxyKey =
       if useApiProxy: ""
       else: getHttpProxyKey(session)
+  if useApiProxy and session.proxyGroup > 0:
+    headers[proxyGroupHeader] = $session.proxyGroup
 
   try:
     var response: AsyncResponse
@@ -206,8 +210,10 @@ template fetchImpl(result, fetchBody) {.dirty.} =
     let skipTid = case session.kind
       of oauth: req.oauth.skipTid
       of cookie: req.cookie.skipTid
-    let headers = await genHeaders(session, url, skipTid)
+    var headers = await genHeaders(session, url, skipTid)
     let useApiProxy = apiProxy.len > 0
+    if useApiProxy and session.proxyGroup > 0:
+      headers[proxyGroupHeader] = $session.proxyGroup
     let fetchUrl =
       if useApiProxy: ($url).replace("https://", apiProxy)
       else: $url

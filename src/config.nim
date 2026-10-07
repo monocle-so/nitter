@@ -58,6 +58,8 @@ proc getConfig*(path: string): (Config, parseCfg.Config) =
     proxyAuth: cfg.getEnvOrConfig("NITTER_PROXY_AUTH", "Config", "proxyAuth", ""),
     proxySessionPerAccount: cfg.getEnvOrConfig(
       "NITTER_PROXY_SESSION_PER_ACCOUNT", "Config", "proxySessionPerAccount", false),
+    proxyAccountsPerIp: cfg.getEnvOrConfig(
+      "NITTER_PROXY_ACCOUNTS_PER_IP", "Config", "proxyAccountsPerIp", 0),
     apiProxy: cfg.getEnvOrConfig("NITTER_API_PROXY", "Config", "apiProxy", ""),
     apiProxyRequired: cfg.getEnvOrConfig(
       "NITTER_API_PROXY_REQUIRED", "Config", "apiProxyRequired", false),

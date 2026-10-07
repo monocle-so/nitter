@@ -81,10 +81,47 @@ proc addProxySession(url, sessionId: string): string =
   let insertAt = if colon >= 0 and colon < at: colon else: at
   result = result[0 ..< insertAt] & "-sessid-" & sessionId & result[insertAt .. ^1]
 
+proc proxyPortSpan(url: string): (int, int) =
+  ## Bounds of the port digits in a proxy URL, or (-1, -1) if it has none.
+  let schemeEnd = url.find("://") + 3
+  if schemeEnd < 3:
+    return (-1, -1)
+  var hostEnd = url.find('/', schemeEnd)
+  if hostEnd < 0:
+    hostEnd = url.len
+  let
+    hostStart = max(schemeEnd, url.rfind('@', last = hostEnd - 1) + 1)
+    colon = url.rfind(':', start = hostStart, last = hostEnd - 1)
+  if colon < 0 or colon + 1 == hostEnd:
+    return (-1, -1)
+  for ch in url[colon + 1 ..< hostEnd]:
+    if ch notin Digits:
+      return (-1, -1)
+  (colon + 1, hostEnd)
+
+proc addProxyGroup(url: string; group: int): string =
+  let (first, last) = proxyPortSpan(url)
+  if group <= 0 or first < 0:
+    return url
+  url[0 ..< first] & $(parseInt(url[first ..< last]) + group) & url[last .. ^1]
+
+proc proxyGroupPorts*(groups: int): string =
+  ## Port range the proxy groups use, for the startup log.
+  let (first, last) = proxyPortSpan(proxyUrl)
+  if proxyUrl.len == 0:
+    return "port offsets +0 to +" & $(groups - 1)
+  if first < 0:
+    raise newException(ValueError, "proxy URL has no port to offset")
+  let base = parseInt(proxyUrl[first ..< last])
+  "ports " & $base & "-" & $(base + groups - 1)
+
 proc getHttpProxyKey*(session: Session): string =
   if proxyUrl.len == 0:
     return ""
-  addProxySession(foldProxyAuth(proxyUrl, proxyAuth), proxySessionId(session))
+  let
+    url = addProxySession(foldProxyAuth(proxyUrl, proxyAuth), proxySessionId(session))
+    group = if session.isNil: 0 else: session.proxyGroup
+  addProxyGroup(url, group)
 
 proc newClient(heads: HttpHeaders; proxyKey: string): AsyncHttpClient =
   if proxyKey.len > 0:

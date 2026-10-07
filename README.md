@@ -126,6 +126,16 @@ wait for the active search to finish and its pacing interval to expire. Routes
 using the same upstream endpoint share both limits, including tweet search and
 user search. Error cooldowns (`errorCooldownMs`) still apply account-wide.
 
+Set `NITTER_PROXY_ACCOUNTS_PER_IP` (`proxyAccountsPerIp`) to split accounts
+across proxy IPs by port. Accounts are grouped in sessions file order, and each
+group adds its index to the proxy URL's port: with `:8001` and 20, accounts
+1-20 use port 8001, 21-40 use 8002, and so on. Keep the sessions file
+append-only, since removing a line moves every later account to another IP.
+The default of 0 sends every account through the configured port. With
+`NITTER_API_PROXY`, Nitter sends the group in an internal
+`x-nitter-proxy-group` header, and the API proxy offsets its own
+`NITTER_PROXY` port and strips the header before forwarding to X.
+
 Health reports `sessions.cooling_down` for account-wide error cooldowns and
 `sessions.pacing` for accounts with at least one endpoint in its pacing interval.
 These counts can overlap; a paced account may still serve other endpoints.
