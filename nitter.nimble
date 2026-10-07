@@ -28,6 +28,7 @@ requires "oauth == 0.11"
 
 task testSessions, "Test session scheduling without network requests":
   exec "nim c -r --assertions:on tests/test_session_pacing.nim"
+  exec "nim c -r --assertions:on tests/test_proxy_groups.nim"
 
 task testProfileUpdate, "Test profile update parsing and merge behavior":
   exec "nim c -r --assertions:on tests/test_profile_update.nim"

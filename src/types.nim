@@ -42,6 +42,7 @@ type
     nextAvailableAt*: int64 # account-wide error cooldown
     nextRequestAt*: Table[string, int64] # pacing per upstream endpoint
     apis*: Table[string, RateLimit]
+    proxyGroup*: int # added to the proxy port, so each group gets its own IP
     case kind*: SessionKind
     of oauth:
       oauthToken*: string
@@ -431,6 +432,7 @@ type
     proxy*: string
     proxyAuth*: string
     proxySessionPerAccount*: bool
+    proxyAccountsPerIp*: int
     apiProxy*: string
     apiProxyRequired*: bool
     disableTid*: bool

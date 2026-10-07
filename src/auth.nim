@@ -195,6 +195,10 @@ proc getSessionPoolDebug*(): JsonNode =
 
   return %list
 
+proc proxyGroupCount*(): int =
+  for session in sessionPool:
+    result = max(result, session.proxyGroup + 1)
+
 proc rateLimitError*(): ref RateLimitError =
   newException(RateLimitError, "rate limited")
 
@@ -409,6 +413,9 @@ proc initSessionPool*(cfg: Config; path: string) =
 
   log "parsing JSONL account sessions file: ", path
   for line in path.lines:
-    sessionPool.add parseSession(line)
+    let session = parseSession(line)
+    if cfg.proxyAccountsPerIp > 0:
+      session.proxyGroup = sessionPool.len div cfg.proxyAccountsPerIp
+    sessionPool.add session
 
   log "successfully added ", sessionPool.len, " valid account sessions"

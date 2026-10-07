@@ -39,6 +39,13 @@ setProxyEncoding(cfg.base64Media)
 setMaxHttpConns(cfg.httpMaxConns)
 setHttpProxy(cfg.proxy, cfg.proxyAuth, cfg.proxySessionPerAccount)
 setApiProxy(cfg.apiProxy)
+if cfg.proxyAccountsPerIp > 0:
+  let groups = proxyGroupCount()
+  try:
+    echo &"[sessions] proxy IP groups: {groups} x {cfg.proxyAccountsPerIp} accounts, ",
+      proxyGroupPorts(groups)
+  except ValueError as e:
+    quit "NITTER_PROXY_ACCOUNTS_PER_IP is set but " & e.msg, QuitFailure
 setDisableTid(cfg.disableTid)
 setMaxConcurrentReqs(cfg.maxConcurrentReqs)
 setSessionSafety(
