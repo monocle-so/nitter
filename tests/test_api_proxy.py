@@ -59,7 +59,8 @@ class ApiProxyTest(unittest.TestCase):
         self.assertEqual(self.proxy_line(), 'proxy = "http://user:pass@isp.example:8001"')
 
     def test_invalid_proxy_group_is_rejected(self):
-        self.assertEqual(self.request("/x.com/i/api/graphql/abc", headers={"x-nitter-proxy-group": "-1"}), 400)
+        for group in ("-1", "²"):
+            self.assertEqual(self.request("/x.com/i/api/graphql/abc", headers={"x-nitter-proxy-group": group}), 400)
         self.assertEqual(self.calls, [])
 
     def test_unlisted_host_is_rejected(self):

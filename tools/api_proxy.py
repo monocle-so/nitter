@@ -189,7 +189,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
 
         cookie_header = self.headers.get("cookie", "")
         group = self.headers.get(PROXY_GROUP_HEADER, "0")
-        if not group.isdigit():
+        if not (group.isascii() and group.isdigit()):
             self.send_text_error(400, "invalid proxy group")
             return
         proxy = sticky_proxy(os.environ.get("NITTER_PROXY", ""), cookie_header)
