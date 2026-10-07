@@ -5,7 +5,7 @@ import re
 import subprocess
 import tempfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import unquote
+from urllib.parse import unquote, urlsplit
 
 
 HOP_BY_HOP = {
@@ -22,6 +22,8 @@ HOP_BY_HOP = {
 }
 
 STRIP_RESPONSE_HEADERS = HOP_BY_HOP | {"content-encoding"}
+# Set by Nitter to pick the account's proxy IP; never forwarded to X.
+PROXY_GROUP_HEADER = "x-nitter-proxy-group"
 MAX_REQUEST_BODY = 12 * 1024 * 1024
 ALLOWED_TARGET_PREFIXES = ("x.com/", "api.x.com/", "upload.x.com/")
 
@@ -85,6 +87,17 @@ def sticky_proxy(proxy, cookie_header):
     colon = proxy.find(":", scheme_end)
     insert_at = colon if 0 <= colon < at else at
     return proxy[:insert_at] + "-sessid-" + sid + proxy[insert_at:]
+
+
+def grouped_proxy(proxy, group):
+    """Adds the account's proxy group to the proxy port, one IP per group."""
+    if not proxy or group == 0:
+        return proxy
+    parts = urlsplit(proxy)
+    if parts.port is None:
+        raise ValueError("NITTER_PROXY has no port to offset")
+    host = parts.netloc.rsplit(":", 1)[0]
+    return parts._replace(netloc=f"{host}:{parts.port + group}").geturl()
 
 
 def split_header_blocks(raw_headers):
@@ -175,7 +188,16 @@ class ProxyHandler(BaseHTTPRequestHandler):
             return
 
         cookie_header = self.headers.get("cookie", "")
+        group = self.headers.get(PROXY_GROUP_HEADER, "0")
+        if not group.isdigit():
+            self.send_text_error(400, "invalid proxy group")
+            return
         proxy = sticky_proxy(os.environ.get("NITTER_PROXY", ""), cookie_header)
+        try:
+            proxy = grouped_proxy(proxy, int(group))
+        except ValueError as e:
+            self.send_text_error(500, str(e))
+            return
 
         with (
             tempfile.NamedTemporaryFile() as header_file,
@@ -204,7 +226,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 config.append(config_line("proxy", proxy))
 
             for name, value in self.headers.items():
-                if name.lower() in HOP_BY_HOP:
+                if name.lower() in HOP_BY_HOP or name.lower() == PROXY_GROUP_HEADER:
                     continue
                 config.append(config_line("header", f"{name}: {value}"))
 
