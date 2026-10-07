@@ -370,6 +370,10 @@ proc profileResult(body: string; accountId: int64): JsonNode =
   if result.kind == JNull or result{"rest_id"}.getStr != $accountId:
     raise profileError(502, "Profile response returned no matching user")
 
+proc resolvedProfileWebsite(user: JsonNode): string =
+  resolveTwitterLinks(user{"website", "url"}.getStr,
+    user{"profile_bio", "entities", "url"})
+
 proc parseProfileSnapshot*(body: string; accountId: int64): ProfileSnapshot =
   let user = profileResult(body, accountId)
   let
@@ -384,13 +388,13 @@ proc parseProfileSnapshot*(body: string; accountId: int64): ProfileSnapshot =
   result.name = name.getStr
   result.bio = bio.getStr
   result.location = location.getStr
-  result.websiteUrl = website.getStr
+  result.websiteUrl = resolvedProfileWebsite(user)
 
 proc parseProfileUser*(body: string; accountId: int64): User =
   let user = profileResult(body, accountId)
   result = experimentalParser.parseGraphUser(body)
   result.userPic = user{"avatar", "image_url"}.getImageStr.replace("_normal", "")
-  result.website = user{"website", "url"}.getStr
+  result.website = resolvedProfileWebsite(user)
   result.banner = user{"banner", "image_url"}.getImageStr
   if result.banner.len > 0:
     result.banner.add "/1500x500"

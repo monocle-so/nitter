@@ -122,6 +122,18 @@ template getImageVal*(js: JsonNode): string =
 template getExpandedUrl*(js: JsonNode; fallback=""): string =
   js{"expanded_url"}.getStr(js{"url"}.getStr(fallback))
 
+proc resolveTwitterLinks*(content: string; entities: JsonNode): string =
+  ## Replace t.co links in plain text with their expanded URL entities.
+  result = content
+  let urls = entities{"urls"}
+  if urls.kind != JArray:
+    return
+  for url in urls:
+    let shortUrl = url{"url"}.getStr
+    let expandedUrl = url{"expanded_url"}.getStr
+    if shortUrl.len > 0 and expandedUrl.len > 0:
+      result = result.replace(shortUrl, expandedUrl)
+
 proc getCardUrl*(js: JsonNode; kind: CardKind): string =
   result = js{"website_url"}.getStrVal
   if kind == promoVideoConvo:

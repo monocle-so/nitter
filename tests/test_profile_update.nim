@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 import std/[options, strutils, unittest, uri]
+import packedjson
 
+import ".."/src/parserutils
 import ".."/src/profile_update
 import ".."/src/tid
 
@@ -78,15 +80,35 @@ suite "profile update request parsing":
       ("location", "Los Angeles")
     ]
 
+  test "resolves Twitter URL entities in plain text":
+    let entities = parseJson("""{"urls": [
+      {"url": "https://t.co/first", "expanded_url": "https://first.example"},
+      {"url": "https://t.co/second", "expanded_url": "https://second.example"},
+      {"url": "https://t.co/unknown", "expanded_url": ""}
+    ]}""")
+    check resolveTwitterLinks("See https://t.co/first and https://t.co/second", entities) ==
+      "See https://first.example and https://second.example"
+    check resolveTwitterLinks("https://t.co/other", entities) == "https://t.co/other"
+    check resolveTwitterLinks("https://t.co/unknown", entities) == "https://t.co/unknown"
+    check resolveTwitterLinks("https://t.co/first", parseJson("{}")) ==
+      "https://t.co/first"
+
   test "new profile response preserves text and normalizes images":
     let body = """{
       "data": {"user": {"result": {
         "__typename": "User",
         "rest_id": "123",
         "core": {"name": "Old Name", "screen_name": "sample", "created_at": "Sun May 11 15:24:21 +0000 2025"},
-        "profile_bio": {"description": "Visit https://example.com"},
+        "profile_bio": {
+          "description": "Visit https://example.com",
+          "entities": {"url": {"urls": [{
+            "display_url": "example.com",
+            "expanded_url": "https://example.com",
+            "url": "https://t.co/website"
+          }]}}
+        },
         "location": {"location": "Los Angeles"},
-        "website": {"url": "https://example.com"},
+        "website": {"url": "https://t.co/website"},
         "avatar": {"image_url": "https://pbs.twimg.com/profile_images/123/avatar_normal.jpg"},
         "banner": {"image_url": "https://pbs.twimg.com/profile_banners/123/456"},
         "action_counts": {"favorites_count": 12},
@@ -100,6 +122,8 @@ suite "profile update request parsing":
     check snapshot.bio == "Visit https://example.com"
     check snapshot.location == "Los Angeles"
     check snapshot.websiteUrl == "https://example.com"
+    let nameOnly = ProfileUpdateRequest(name: some("New Name"))
+    check ("url", "https://example.com") in mergedProfileParams(snapshot, nameOnly)
 
     let user = parseProfileUser(body, 123)
     check user.id == "123"
