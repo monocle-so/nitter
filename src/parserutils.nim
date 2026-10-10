@@ -3,6 +3,7 @@ import std/[times, macros, htmlgen, options, algorithm, re]
 import std/strutils except escape
 import std/unicode except strip
 from xmltree import escape
+from std/uri import encodeUrl
 import packedjson
 import types, utils, formatters
 
@@ -216,6 +217,14 @@ proc extractUrls(result: var seq[ReplaceSlice]; js: JsonNode;
 proc extractHashtags(result: var seq[ReplaceSlice]; js: JsonNode) =
   result.add ReplaceSlice(kind: rkHashtag, slice: js.extractSlice)
 
+# Crypto tokens are written as `chain:address` and shown by X as `$TICKER`.
+proc extractSmartTag(result: var seq[ReplaceSlice]; js: JsonNode) =
+  let ticker = js{"tag", "info", "info", "ticker"}.getStr
+  if ticker.len > 0:
+    result.add ReplaceSlice(kind: rkUrl, slice: js.extractSlice,
+                            url: "/search?f=tweets&q=" & encodeUrl(js{"text"}.getStr),
+                            display: escape("$" & ticker))
+
 proc replacedWith(runes: seq[Rune]; repls: openArray[ReplaceSlice];
                   textSlice: Slice[int]): string =
   let
@@ -243,7 +252,7 @@ proc replacedWith(runes: seq[Rune]; repls: openArray[ReplaceSlice];
         let
           name = $runes[rep.slice.a.succ .. rep.slice.b]
           symbol = $runes[rep.slice.a]
-        result.add a(symbol & name, href = "/search?f=tweets&q=%23" & name)
+        result.add a(symbol & name, href = "/search?f=tweets&q=" & (if symbol == "$": "%24" else: "%23") & name)
     of rkMention:
       result.add a($runes[rep.slice], href = rep.url, title = rep.display)
     of rkUrl:
@@ -321,6 +330,10 @@ proc expandTextEntities(tweet: Tweet; entities: JsonNode; text: string; textSlic
     for symbol in entities["symbols"]:
       replacements.extractHashtags(symbol)
 
+  if "smarttags" in entities:
+    for smartTag in entities["smarttags"]:
+      replacements.extractSmartTag(smartTag)
+
   if "user_mentions" in entities:
     for mention in entities["user_mentions"]:
       let
@@ -383,6 +396,10 @@ proc expandTextEntitiesV2(tweet: Tweet; js: JsonNode; text: string; textSlice: S
   with cashtags, js{"details", "cashtag_entities"}:
     for cashtag in cashtags:
       replacements.extractHashtags(cashtag)
+
+  with smartTags, js{"details", "smarttags"}:
+    for smartTag in smartTags:
+      replacements.extractSmartTag(smartTag)
 
   with mentions, js{"mention_entities"}:
     for mention in mentions:
