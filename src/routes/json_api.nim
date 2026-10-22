@@ -366,11 +366,10 @@ proc createJsonApiRouter*(cfg: Config) =
       if not validUsername(name):
         respApiError(Http400, "Invalid username")
 
+      # A missing or suspended account is an answer, not an error.
       let user = await getCachedUser(name)
-      if user.username.len == 0:
-        respApiError(Http404, "User not found")
-      if user.suspended:
-        respApiError(Http404, "User is suspended")
+      if user.username.len == 0 or user.suspended:
+        respApi(newJNull())
 
       respApi(userJson(user))
 
