@@ -21,6 +21,9 @@ proc validUsername*(name: string): bool =
   name.len > 0 and name.len <= 20 and
     name.allCharsInSet({'a'..'z', 'A'..'Z', '0'..'9', '_'})
 
+# X rejects TweetResultsByRestIds above ~450 ids (empty result), likely on URL length.
+const maxBatchTweetIds* = 400
+
 proc validId*(id: string): bool =
   id.len > 0 and id.len <= 19 and id.allCharsInSet({'0'..'9'})
 
@@ -404,6 +407,28 @@ proc createJsonApiRouter*(cfg: Config) =
 
       else:
         respApiError(Http404, "Unknown user endpoint")
+
+    post "/api/v1/tweets/?":
+      var idsJson: JsonNode
+      try:
+        idsJson = parseJson(request.body){"ids"}
+      except JsonParsingError:
+        discard
+      if idsJson.isNil or idsJson.kind != JArray:
+        respApiError(Http400, "Body must be JSON with an ids array")
+      var ids: seq[string]
+      for id in idsJson:
+        ids.add id.getStr
+      if ids.len == 0 or ids.len > maxBatchTweetIds:
+        respApiError(Http400, "ids must contain 1 to " & $maxBatchTweetIds & " tweet IDs")
+      for id in ids:
+        if not validId(id):
+          respApiError(Http400, "Invalid tweet ID")
+
+      var items = newJArray()
+      for tweet in await getGraphTweetResults(ids):
+        items.add tweetJson(tweet)
+      respApi(%*{"items": items})
 
     get "/api/v1/tweets/@id/?":
       let id = @"id"

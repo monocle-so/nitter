@@ -726,7 +726,7 @@ proc parseGraphTweetResults*(js: JsonNode): seq[Tweet] =
     let tweet = item{"result"}
     if tweet.isNull: continue
     let t = parseGraphTweet(tweet)
-    if t != nil:
+    if t != nil and t.id != 0:
       result.add t
 
 proc parseGraphConversation*(js: JsonNode; tweetId: string): Conversation =
