@@ -13,6 +13,15 @@ curl -i -H "Authorization: Bearer $NITTER_BEARER_TOKEN" --get http://127.0.0.1:8
 Tweet search defaults to X's Latest (chronological) results; pass `sort=top` for
 the relevance-ranked Top results instead.
 
+Look up to 400 tweets at once with `POST /api/v1/tweets`. It returns
+`{"items": [...]}` in the standard tweet format; deleted or unavailable tweets
+are left out.
+
+```sh
+curl -i -H "Authorization: Bearer $NITTER_BEARER_TOKEN" -H "Content-Type: application/json" \
+  -d '{"ids":["20","1495830282063597572"]}' http://127.0.0.1:8080/api/v1/tweets
+```
+
 ## Account profile API
 
 Both routes use a configured cookie session selected by its numeric account
